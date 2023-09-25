@@ -29,7 +29,7 @@ namespace DnsFallbackApp
 
         public string SubscribeUrl;
 
-        public List<string> Locations;
+        public List<string> Countries;
     }
 
     internal class AppNameServerConfig
