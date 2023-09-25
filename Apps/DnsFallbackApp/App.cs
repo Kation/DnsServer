@@ -263,6 +263,13 @@ namespace DnsFallbackApp
         {
             if (_config.Debug)
                 _dnsServer.WriteLog($"DnsFallbackApp: Incoming request({request.Question[0].Name}).");
+            var cacheResult = _dnsServer.DnsCache.Query(request);
+            if (cacheResult != null)
+            {
+                if (_config.Debug)
+                    _dnsServer.WriteLog($"DnsFallbackApp: Return cache result.");
+                return cacheResult;
+            }
             if (_dnsClient == null)
                 return await _dnsServer.DirectQueryAsync(request);
             bool useDefault = true;
@@ -316,7 +323,7 @@ namespace DnsFallbackApp
                 bool resolveAgain = false;
                 DnsQuestionRecord question = request.Question[0];
 
-                result = await _dnsServer.DirectQueryAsync(request);
+                result = await _dnsServer.DirectQueryAsync(request);                
                 foreach (var answer in result.Answer)
                 {
                     switch (answer.Type)
@@ -358,7 +365,7 @@ namespace DnsFallbackApp
                                         else
                                         {
                                             if (_config.Debug)
-                                                _dnsServer.WriteLog($"DnsFallbackApp: Not match country({ipAddress}), fallback.");
+                                                _dnsServer.WriteLog($"DnsFallbackApp: Not match country({ipAddress}:{response.Country.IsoCode}), fallback.");
                                             resolveAgain = true;
                                         }
                                     }
@@ -386,7 +393,7 @@ namespace DnsFallbackApp
                                         else
                                         {
                                             if (_config.Debug)
-                                                _dnsServer.WriteLog($"DnsFallbackApp: Not match country, fallback.({ipAddress}).");
+                                                _dnsServer.WriteLog($"DnsFallbackApp: Not match country, fallback.({ipAddress}:{response.Country.IsoCode}).");
                                             resolveAgain = true;
                                         }
                                     }
@@ -404,14 +411,19 @@ namespace DnsFallbackApp
                         break;
                 }
                 if (!resolveAgain)
+                {
+                    _dnsServer.DnsCache.CacheResponse(result);
                     return result;
+                }
                 else
                 {
                     if (_config.Debug)
                         _dnsServer.WriteLog($"DnsFallbackApp: Fallback, resolve again({question.Name}).");
                 }
             }
-            return await _dnsClient.ResolveAsync(request);
+            result = await _dnsClient.ResolveAsync(request);
+            _dnsServer.DnsCache.CacheResponse(result);
+            return result;
         }
     }
 }
