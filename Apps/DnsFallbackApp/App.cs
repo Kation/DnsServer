@@ -58,7 +58,7 @@ namespace DnsFallbackApp
             }
             catch (Exception ex)
             {
-                dnsServer.WriteLog("AntiBadDns: Read config failed.");
+                dnsServer.WriteLog("DnsFallbackApp: Read config failed.");
                 dnsServer.WriteLog(ex);
                 return Task.CompletedTask;
             }
@@ -104,11 +104,11 @@ namespace DnsFallbackApp
                     try
                     {
                         _geoDatabase = new DatabaseReader(mmFile.FullName, MaxMind.Db.FileAccessMode.MemoryMapped);
-                        dnsServer.WriteLog("AntiBadDns: Load geo database successfully.");
+                        dnsServer.WriteLog("DnsFallbackApp: Load geo database successfully.");
                     }
                     catch
                     {
-                        dnsServer.WriteLog("AntiBadDns: geo.mmdb is a bad file.");
+                        dnsServer.WriteLog("DnsFallbackApp: geo.mmdb is a bad file.");
                     }
                 }
                 if (_config.Geo.SubscribeUrl != null)
@@ -124,7 +124,7 @@ namespace DnsFallbackApp
                 {
                     if (!IPAddress.TryParse(item.Ip, out var address))
                     {
-                        dnsServer.WriteLog($"AntiBadDns: NameServer parse ip address failed({item.Ip}).");
+                        dnsServer.WriteLog($"DnsFallbackApp: NameServer parse ip address failed({item.Ip}).");
                         continue;
                     }
                     try
@@ -145,7 +145,7 @@ namespace DnsFallbackApp
                                     if (Uri.TryCreate(item.Url, UriKind.Absolute, out var uri))
                                         servers.Add(new NameServerAddress(uri, address, item.Protocol));
                                     else
-                                        dnsServer.WriteLog($"AntiBadDns: NameServere parse url failed({item.Url}).");
+                                        dnsServer.WriteLog($"DnsFallbackApp: NameServere parse url failed({item.Url}).");
                                     break;
                                 default:
                                     if (item.Port != 0)
@@ -158,7 +158,7 @@ namespace DnsFallbackApp
                     }
                     catch (Exception ex)
                     {
-                        dnsServer.WriteLog("AntiBadDns: Create NameServer failed.");
+                        dnsServer.WriteLog("DnsFallbackApp: Create NameServer failed.");
                         dnsServer.WriteLog(ex);
                     }
                 }
@@ -184,18 +184,18 @@ namespace DnsFallbackApp
                                         _dnsClient.Proxy = NetProxy.CreateSocksProxy(_config.Proxy.Address, _config.Proxy.Port, new NetworkCredential(_config.Proxy.Username, _config.Proxy.Password));
                                     break;
                             }
-                            dnsServer.WriteLog($"AntiBadDns: Proxy configured.");
+                            dnsServer.WriteLog($"DnsFallbackApp: Proxy configured.");
                         }
                         catch (Exception ex)
                         {
-                            dnsServer.WriteLog($"AntiBadDns: Proxy create failed.");
+                            dnsServer.WriteLog($"DnsFallbackApp: Proxy create failed.");
                             dnsServer.WriteLog(ex);
                         }
                     }
-                    dnsServer.WriteLog($"AntiBadDns: NameServers configured.");
+                    dnsServer.WriteLog($"DnsFallbackApp: NameServers configured.");
                 }
                 else
-                    dnsServer.WriteLog($"AntiBadDns: There is no any NameServer.");
+                    dnsServer.WriteLog($"DnsFallbackApp: There is no any NameServer.");
 
             }
             return Task.CompletedTask;
@@ -209,7 +209,7 @@ namespace DnsFallbackApp
                 HttpClient client = new HttpClient();
                 try
                 {
-                    _dnsServer.WriteLog("AntiBadDns: Starting download geo database.");
+                    _dnsServer.WriteLog("DnsFallbackApp: Starting download geo database.");
                     var stream = await client.GetStreamAsync(_config.Geo.SubscribeUrl);
                     var file = new MemoryStream();
                     await stream.CopyToAsync(file);
@@ -221,16 +221,16 @@ namespace DnsFallbackApp
                         await File.WriteAllBytesAsync(Path.Combine(_dnsServer.ApplicationFolder, "geo_new.mmdb"), file.ToArray());
                         _geoDatabase = database;
                         success = true;
-                        _dnsServer.WriteLog("AntiBadDns: Download geo database successfully.");
+                        _dnsServer.WriteLog("DnsFallbackApp: Download geo database successfully.");
                     }
                     catch
                     {
-                        _dnsServer.WriteLog("AntiBadDns: Download geo database failed.");
+                        _dnsServer.WriteLog("DnsFallbackApp: Download geo database failed.");
                     }
                 }
                 catch
                 {
-                    _dnsServer.WriteLog("AntiBadDns: Download geo database failed.");
+                    _dnsServer.WriteLog("DnsFallbackApp: Download geo database failed.");
                 }
                 try
                 {
@@ -253,7 +253,7 @@ namespace DnsFallbackApp
         public async Task<DnsDatagram> ProcessRequestAsync(DnsDatagram request, IPEndPoint remoteEP, DnsTransportProtocol protocol, bool isRecursionAllowed)
         {
             if (_config.Debug)
-                _dnsServer.WriteLog($"AntiBadDns: Incoming request({request.Question[0].Name}).");
+                _dnsServer.WriteLog($"DnsFallbackApp: Incoming request({request.Question[0].Name}).");
                 if (_dnsClient == null)
                     return await _dnsServer.DirectQueryAsync(request);
             bool useDefault = true;
@@ -268,7 +268,7 @@ namespace DnsFallbackApp
                         if (name.AsSpan().EndsWith(domain.AsSpan().Slice(2), StringComparison.OrdinalIgnoreCase))
                         {
                             useDefault = false;
-                            _dnsServer.WriteLog($"AntiBadDns: Match domain({domain}).");
+                            _dnsServer.WriteLog($"DnsFallbackApp: Match domain({domain}).");
                             break;
                         }
                     }
@@ -279,7 +279,7 @@ namespace DnsFallbackApp
                         {
                             if (name.AsSpan().Slice(i + 1).Equals(domain.AsSpan().Slice(2), StringComparison.OrdinalIgnoreCase))
                             {
-                                _dnsServer.WriteLog($"AntiBadDns: Match domain({domain}).");
+                                _dnsServer.WriteLog($"DnsFallbackApp: Match domain({domain}).");
                                 useDefault = false;
                                 break;
                             }
@@ -287,14 +287,14 @@ namespace DnsFallbackApp
                     }
                     else if (name == domain)
                     {
-                        _dnsServer.WriteLog($"AntiBadDns: Match domain({domain}).");
+                        _dnsServer.WriteLog($"DnsFallbackApp: Match domain({domain}).");
                         useDefault = false;
                         break;
                     }
                     else
                     {
                         if (_config.Debug)
-                            _dnsServer.WriteLog($"AntiBadDns: Domain not match({name}).");
+                            _dnsServer.WriteLog($"DnsFallbackApp: Domain not match({name}).");
                     }
                 }
             }
@@ -324,7 +324,7 @@ namespace DnsFallbackApp
                                         if (ipnum >= range.Item1 && ipnum <= range.Item2)
                                         {
                                             resolveAgain = true;
-                                            _dnsServer.WriteLog($"AntiBadDns: Match ip range({requestECS.Address}).");
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match ip range({requestECS.Address}).");
                                             break;
                                         }
                                     }
@@ -336,9 +336,9 @@ namespace DnsFallbackApp
                                     if (!_geoDatabase.TryCountry(requestECS.Address, out CountryResponse response) || _config.Geo.Locations.Contains(response.Country.IsoCode))
                                     {
                                         if (response == null)
-                                            _dnsServer.WriteLog($"AntiBadDns: Match location failed({requestECS.Address}).");
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match location failed({requestECS.Address}).");
                                         else
-                                            _dnsServer.WriteLog($"AntiBadDns: Match location({requestECS.Address}:{response.Country.IsoCode}).");
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match location({requestECS.Address}:{response.Country.IsoCode}).");
                                         resolveAgain = true;
                                     }
                                 }
@@ -347,7 +347,7 @@ namespace DnsFallbackApp
                             {
                                 if (_config.Debug)
                                 {
-                                    _dnsServer.WriteLog($"AntiBadDns: First request failed, need reslove again.");
+                                    _dnsServer.WriteLog($"DnsFallbackApp: First request failed, need reslove again.");
                                     _dnsServer.WriteLog(JsonSerializer.Serialize(result));
                                 }
                                 resolveAgain = true;
@@ -364,9 +364,9 @@ namespace DnsFallbackApp
                                     if (!_geoDatabase.TryCountry(requestECS.Address, out CountryResponse response) || _config.Geo.Locations.Contains(response.Country.IsoCode))
                                     {
                                         if (response == null)
-                                            _dnsServer.WriteLog($"AntiBadDns: Match location failed({requestECS.Address}).");
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match location failed({requestECS.Address}).");
                                         else
-                                            _dnsServer.WriteLog($"AntiBadDns: Match location({requestECS.Address}:{response.Country.IsoCode}).");
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match location({requestECS.Address}:{response.Country.IsoCode}).");
                                         resolveAgain = true;
                                     }
                                 }
@@ -383,7 +383,7 @@ namespace DnsFallbackApp
                 else
                 {
                     if (_config.Debug)
-                        _dnsServer.WriteLog($"AntiBadDns: Need resolve again({question.Name}).");
+                        _dnsServer.WriteLog($"DnsFallbackApp: Need resolve again({question.Name}).");
                 }
             }
 
