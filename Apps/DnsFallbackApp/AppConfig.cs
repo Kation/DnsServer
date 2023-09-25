@@ -10,7 +10,7 @@ namespace DnsFallbackApp
 {
     internal class AppConfig
     {
-        public bool Debug;
+        public bool IsDebug;
 
         public List<string> Domains;
 

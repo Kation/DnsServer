@@ -261,12 +261,12 @@ namespace DnsFallbackApp
 
         public async Task<DnsDatagram> ProcessRequestAsync(DnsDatagram request, IPEndPoint remoteEP, DnsTransportProtocol protocol, bool isRecursionAllowed)
         {
-            if (_config.Debug)
+            if (_config.IsDebug)
                 _dnsServer.WriteLog($"DnsFallbackApp: Incoming request({request.Question[0].Name}).");
             var cacheResult = _dnsServer.DnsCache.Query(request);
             if (cacheResult != null)
             {
-                if (_config.Debug)
+                if (_config.IsDebug)
                     _dnsServer.WriteLog($"DnsFallbackApp: Return cache result.");
                 return cacheResult;
             }
@@ -281,10 +281,10 @@ namespace DnsFallbackApp
                 {
                     if (domain.StartsWith("+."))
                     {
-                        if (name.AsSpan().EndsWith(domain.AsSpan().Slice(2), StringComparison.OrdinalIgnoreCase))
+                        if (name.AsSpan().EndsWith(domain.AsSpan().Slice(1), StringComparison.OrdinalIgnoreCase) || name.AsSpan().Equals(domain.AsSpan().Slice(2), StringComparison.OrdinalIgnoreCase))
                         {
                             useDefault = false;
-                            if (_config.Debug)
+                            if (_config.IsDebug)
                                 _dnsServer.WriteLog($"DnsFallbackApp: Match domain({domain}), fallback.");
                             break;
                         }
@@ -294,9 +294,9 @@ namespace DnsFallbackApp
                         var i = name.IndexOf(".");
                         if (i != -1)
                         {
-                            if (name.AsSpan().Slice(i + 1).Equals(domain.AsSpan().Slice(2), StringComparison.OrdinalIgnoreCase))
+                            if (name.AsSpan().Slice(i + 1).Equals(domain.AsSpan().Slice(2), StringComparison.OrdinalIgnoreCase) || name.AsSpan().Equals(domain.AsSpan().Slice(2), StringComparison.OrdinalIgnoreCase))
                             {
-                                if (_config.Debug)
+                                if (_config.IsDebug)
                                     _dnsServer.WriteLog($"DnsFallbackApp: Match domain({domain}), fallback.");
                                 useDefault = false;
                                 break;
@@ -305,14 +305,14 @@ namespace DnsFallbackApp
                     }
                     else if (name == domain)
                     {
-                        if (_config.Debug)
+                        if (_config.IsDebug)
                             _dnsServer.WriteLog($"DnsFallbackApp: Match domain({domain}), fallback.");
                         useDefault = false;
                         break;
                     }
                     else
                     {
-                        if (_config.Debug)
+                        if (_config.IsDebug)
                             _dnsServer.WriteLog($"DnsFallbackApp: Domain not match({name}).");
                     }
                 }
@@ -331,7 +331,7 @@ namespace DnsFallbackApp
                         case DnsResourceRecordType.A:
                             {
                                 var ipAddress = ((DnsARecordData)answer.RDATA).Address;
-                                if (_config.Debug)
+                                if (_config.IsDebug)
                                     _dnsServer.WriteLog($"DnsFallbackApp: {ipAddress}");
                                 if (_ranges != null && _ranges.Count != 0)
                                 {
@@ -345,7 +345,7 @@ namespace DnsFallbackApp
                                         if (ipnum >= range.Item1 && ipnum <= range.Item2)
                                         {
                                             resolveAgain = true;
-                                            if (_config.Debug)
+                                            if (_config.IsDebug)
                                                 _dnsServer.WriteLog($"DnsFallbackApp: Match ip range.({ipAddress}), fallback.");
                                             break;
                                         }
@@ -359,19 +359,19 @@ namespace DnsFallbackApp
                                     {
                                         if (_config.Geo.Countries.Contains(response.Country.IsoCode))
                                         {
-                                            if (_config.Debug)
+                                            if (_config.IsDebug)
                                                 _dnsServer.WriteLog($"DnsFallbackApp: Match country({ipAddress}:{response.Country.IsoCode}).");
                                         }
                                         else
                                         {
-                                            if (_config.Debug)
+                                            if (_config.IsDebug)
                                                 _dnsServer.WriteLog($"DnsFallbackApp: Not match country({ipAddress}:{response.Country.IsoCode}), fallback.");
                                             resolveAgain = true;
                                         }
                                     }
                                     else
                                     {
-                                        if (_config.Debug)
+                                        if (_config.IsDebug)
                                             _dnsServer.WriteLog($"DnsFallbackApp: Match country failed({ipAddress}), fallback.");
                                         resolveAgain = true;
                                     }
@@ -387,19 +387,19 @@ namespace DnsFallbackApp
                                     {
                                         if (_config.Geo.Countries.Contains(response.Country.IsoCode))
                                         {
-                                            if (_config.Debug)
+                                            if (_config.IsDebug)
                                                 _dnsServer.WriteLog($"DnsFallbackApp: Match country({ipAddress}:{response.Country.IsoCode}).");
                                         }
                                         else
                                         {
-                                            if (_config.Debug)
+                                            if (_config.IsDebug)
                                                 _dnsServer.WriteLog($"DnsFallbackApp: Not match country, fallback.({ipAddress}:{response.Country.IsoCode}).");
                                             resolveAgain = true;
                                         }
                                     }
                                     else
                                     {
-                                        if (_config.Debug)
+                                        if (_config.IsDebug)
                                             _dnsServer.WriteLog($"DnsFallbackApp: Match country failed({ipAddress}).");
                                         resolveAgain = true;
                                     }
@@ -417,7 +417,7 @@ namespace DnsFallbackApp
                 }
                 else
                 {
-                    if (_config.Debug)
+                    if (_config.IsDebug)
                         _dnsServer.WriteLog($"DnsFallbackApp: Fallback, resolve again({question.Name}).");
                 }
             }
