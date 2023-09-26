@@ -22,6 +22,7 @@
   "proxy": { //Proxy to use when access to name servers.
     "type": "None", //None,Http,Socks5
     "address": null,
+    "port": 8080,
     "username": null,
     "password": null
   },

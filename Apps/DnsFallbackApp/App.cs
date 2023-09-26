@@ -17,7 +17,7 @@ using TechnitiumLibrary.Net.Proxy;
 
 namespace DnsFallbackApp
 {
-    public class App : IDnsApplication, IDnsAuthoritativeRequestHandler
+    public class App : IDnsApplication, IDnsAuthoritativeRequestHandler, IDnsPostProcessor
     {
         private IDnsServer _dnsServer;
         private AppConfig _config;
@@ -56,10 +56,11 @@ namespace DnsFallbackApp
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                     IncludeFields = true,
+                    ReadCommentHandling = JsonCommentHandling.Skip,
                     Converters =
-                {
-                    new System.Text.Json.Serialization.JsonStringEnumConverter()
-                }
+                    {
+                        new System.Text.Json.Serialization.JsonStringEnumConverter()
+                    }
                 });
             }
             catch (Exception ex)
@@ -224,6 +225,8 @@ namespace DnsFallbackApp
                     await stream.CopyToAsync(file);
                     await stream.DisposeAsync();
                     file.Position = 0;
+                    if (_cts.IsCancellationRequested)
+                        return;
                     try
                     {
                         var database = new DatabaseReader(file);
@@ -241,6 +244,8 @@ namespace DnsFallbackApp
                 {
                     _dnsServer.WriteLog("DnsFallbackApp: Download geo database failed.");
                 }
+                if (_cts.IsCancellationRequested)
+                    return;
                 try
                 {
                     if (success)
@@ -263,15 +268,8 @@ namespace DnsFallbackApp
         {
             if (_config.IsDebug)
                 _dnsServer.WriteLog($"DnsFallbackApp: Incoming request({request.Question[0].Name}).");
-            var cacheResult = _dnsServer.DnsCache.Query(request);
-            if (cacheResult != null)
-            {
-                if (_config.IsDebug)
-                    _dnsServer.WriteLog($"DnsFallbackApp: Return cache result.");
-                return cacheResult;
-            }
             if (_dnsClient == null)
-                return await _dnsServer.DirectQueryAsync(request);
+                return null;
             bool useDefault = true;
             if (_config.Domains != null && _config.Domains.Count != 0)
             {
@@ -317,113 +315,132 @@ namespace DnsFallbackApp
                     }
                 }
             }
-            DnsDatagram result;
             if (useDefault)
+                return null;
+            var result = _dnsServer.DnsCache.Query(request);
+            if (result != null)
             {
-                bool resolveAgain = false;
-                DnsQuestionRecord question = request.Question[0];
-
-                result = await _dnsServer.DirectQueryAsync(request);                
-                foreach (var answer in result.Answer)
-                {
-                    switch (answer.Type)
-                    {
-                        case DnsResourceRecordType.A:
-                            {
-                                var ipAddress = ((DnsARecordData)answer.RDATA).Address;
-                                if (_config.IsDebug)
-                                    _dnsServer.WriteLog($"DnsFallbackApp: {ipAddress}");
-                                if (_ranges != null && _ranges.Count != 0)
-                                {
-                                    var bytes = ipAddress.GetAddressBytes();
-                                    uint ipnum = ((uint)bytes[0] << 24) |
-                                    ((uint)bytes[1] << 16) |
-                                    ((uint)bytes[2] << 8) |
-                                    bytes[3];
-                                    foreach (var range in _ranges)
-                                    {
-                                        if (ipnum >= range.Item1 && ipnum <= range.Item2)
-                                        {
-                                            resolveAgain = true;
-                                            if (_config.IsDebug)
-                                                _dnsServer.WriteLog($"DnsFallbackApp: Match ip range.({ipAddress}), fallback.");
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (resolveAgain)
-                                    break;
-                                if (_config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
-                                {
-                                    if (_geoDatabase.TryCountry(ipAddress, out CountryResponse response))
-                                    {
-                                        if (_config.Geo.Countries.Contains(response.Country.IsoCode))
-                                        {
-                                            if (_config.IsDebug)
-                                                _dnsServer.WriteLog($"DnsFallbackApp: Match country({ipAddress}:{response.Country.IsoCode}).");
-                                        }
-                                        else
-                                        {
-                                            if (_config.IsDebug)
-                                                _dnsServer.WriteLog($"DnsFallbackApp: Not match country({ipAddress}:{response.Country.IsoCode}), fallback.");
-                                            resolveAgain = true;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        if (_config.IsDebug)
-                                            _dnsServer.WriteLog($"DnsFallbackApp: Match country failed({ipAddress}), fallback.");
-                                        resolveAgain = true;
-                                    }
-                                }
-                                break;
-                            }
-                        case DnsResourceRecordType.AAAA:
-                            {
-                                if (_config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
-                                {
-                                    var ipAddress = ((DnsAAAARecordData)answer.RDATA).Address;
-                                    if (_geoDatabase.TryCountry(ipAddress, out CountryResponse response))
-                                    {
-                                        if (_config.Geo.Countries.Contains(response.Country.IsoCode))
-                                        {
-                                            if (_config.IsDebug)
-                                                _dnsServer.WriteLog($"DnsFallbackApp: Match country({ipAddress}:{response.Country.IsoCode}).");
-                                        }
-                                        else
-                                        {
-                                            if (_config.IsDebug)
-                                                _dnsServer.WriteLog($"DnsFallbackApp: Not match country, fallback.({ipAddress}:{response.Country.IsoCode}).");
-                                            resolveAgain = true;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        if (_config.IsDebug)
-                                            _dnsServer.WriteLog($"DnsFallbackApp: Match country failed({ipAddress}).");
-                                        resolveAgain = true;
-                                    }
-                                }
-                                break;
-                            }
-                    }
-                    if (resolveAgain)
-                        break;
-                }
-                if (!resolveAgain)
-                {
-                    _dnsServer.DnsCache.CacheResponse(result);
-                    return result;
-                }
-                else
-                {
-                    if (_config.IsDebug)
-                        _dnsServer.WriteLog($"DnsFallbackApp: Fallback, resolve again({question.Name}).");
-                }
+                result.Tag = DnsServerResponseType.Cached;
+                return result;
             }
             result = await _dnsClient.ResolveAsync(request);
             _dnsServer.DnsCache.CacheResponse(result);
             return result;
+        }
+
+        public async Task<DnsDatagram> PostProcessAsync(DnsDatagram request, IPEndPoint remoteEP, DnsTransportProtocol protocol, DnsDatagram response)
+        {
+            if (response.Tag is DnsServerResponseType type && type == DnsServerResponseType.Cached)
+            {
+                if (_config.IsDebug)
+                    _dnsServer.WriteLog($"DnsFallbackApp: Cache response({request.Question[0].Name}).");
+                return response;
+            }
+            if (_config.IsDebug)
+                _dnsServer.WriteLog($"DnsFallbackApp: Request response({request.Question[0].Name}).");
+            if (response.IsZoneTransfer)
+            {
+                _dnsServer.WriteLog($"DnsFallbackApp: Skip zone handled.");
+                return response;
+            }
+            bool resolveAgain = false;
+            foreach (var answer in response.Answer)
+            {
+                switch (answer.Type)
+                {
+                    case DnsResourceRecordType.A:
+                        {
+                            var ipAddress = ((DnsARecordData)answer.RDATA).Address;
+                            if (_config.IsDebug)
+                                _dnsServer.WriteLog($"DnsFallbackApp: {response.Question[0].Name} - {ipAddress}");
+                            if (_ranges != null && _ranges.Count != 0)
+                            {
+                                var bytes = ipAddress.GetAddressBytes();
+                                uint ipnum = ((uint)bytes[0] << 24) |
+                                ((uint)bytes[1] << 16) |
+                                ((uint)bytes[2] << 8) |
+                                bytes[3];
+                                foreach (var range in _ranges)
+                                {
+                                    if (ipnum >= range.Item1 && ipnum <= range.Item2)
+                                    {
+                                        resolveAgain = true;
+                                        if (_config.IsDebug)
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match ip range.({ipAddress}), fallback.");
+                                        break;
+                                    }
+                                }
+                            }
+                            if (resolveAgain)
+                                break;
+                            if (_config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
+                            {
+                                if (_geoDatabase.TryCountry(ipAddress, out CountryResponse countryResponse))
+                                {
+                                    if (_config.Geo.Countries.Contains(countryResponse.Country.IsoCode))
+                                    {
+                                        if (_config.IsDebug)
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match country({ipAddress}:{countryResponse.Country.IsoCode}).");
+                                    }
+                                    else
+                                    {
+                                        if (_config.IsDebug)
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Not match country({ipAddress}:{countryResponse.Country.IsoCode}), fallback.");
+                                        resolveAgain = true;
+                                    }
+                                }
+                                else
+                                {
+                                    if (_config.IsDebug)
+                                        _dnsServer.WriteLog($"DnsFallbackApp: Match country failed({ipAddress}), fallback.");
+                                    resolveAgain = true;
+                                }
+                            }
+                            break;
+                        }
+                    case DnsResourceRecordType.AAAA:
+                        {
+                            if (_config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
+                            {
+                                var ipAddress = ((DnsAAAARecordData)answer.RDATA).Address;
+                                if (_config.IsDebug)
+                                    _dnsServer.WriteLog($"DnsFallbackApp: {response.Question[0].Name} - {ipAddress}");
+                                if (_geoDatabase.TryCountry(ipAddress, out CountryResponse countryResponse))
+                                {
+                                    if (_config.Geo.Countries.Contains(countryResponse.Country.IsoCode))
+                                    {
+                                        if (_config.IsDebug)
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Match country({ipAddress}:{countryResponse.Country.IsoCode}).");
+                                    }
+                                    else
+                                    {
+                                        if (_config.IsDebug)
+                                            _dnsServer.WriteLog($"DnsFallbackApp: Not match country, fallback.({ipAddress}:{countryResponse.Country.IsoCode}).");
+                                        resolveAgain = true;
+                                    }
+                                }
+                                else
+                                {
+                                    if (_config.IsDebug)
+                                        _dnsServer.WriteLog($"DnsFallbackApp: Match country failed({ipAddress}).");
+                                    resolveAgain = true;
+                                }
+                            }
+                            break;
+                        }
+                }
+                if (resolveAgain)
+                    break;
+            }
+            if (resolveAgain)
+            {
+                if (_config.IsDebug)
+                    _dnsServer.WriteLog($"DnsFallbackApp: Fallback, resolve again({request.Question[0].Name}).");
+                var result = await _dnsClient.ResolveAsync(request);
+                _dnsServer.DnsCache.CacheResponse(result);
+                return result;
+            }
+            return response;
         }
     }
 }

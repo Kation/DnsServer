@@ -31,7 +31,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="dnsApp.config">
+    <None Update="dnsApp.json">
+      <Link>dnsApp.config</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
