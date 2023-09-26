@@ -30,6 +30,9 @@
     "*.google.com",
     "+.youtube.com"
   ],
+  "exceptDomains": [ //Domain which include in list will nerver fallback.
+    "lan"
+  ],
   "ipcidr": [ //Resolved IP address which include in list will be fallback.
     "0.0.0.0/8",
     "10.0.0.0/8",

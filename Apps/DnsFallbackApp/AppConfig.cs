@@ -14,6 +14,8 @@ namespace DnsFallbackApp
 
         public List<string> Domains;
 
+        public List<string> ExceptDomains;
+
         public List<string> Ipcidr;
 
         public AppGeoConfig Geo;
