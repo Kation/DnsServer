@@ -460,7 +460,16 @@ namespace DnsFallbackApp
             {
                 if (_config.IsDebug)
                     _dnsServer.WriteLog($"DnsFallbackApp: Fallback, resolve again({request.Question[0].Name}).");
-                var result = await _dnsClient.ResolveAsync(request);
+                DnsDatagram result;
+                try
+                {
+                    result = await _dnsClient.ResolveAsync(request);
+                }
+                catch (Exception ex)
+                {
+                    _dnsServer.WriteLog($"DnsFallbackApp: Fallback resolve failed. " + ex.Message);
+                    return response;
+                }
                 if (result.RCODE == DnsResponseCode.NoError)
                     _dnsServer.DnsCache.CacheResponse(result);
                 return result;
