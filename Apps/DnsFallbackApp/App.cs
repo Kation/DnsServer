@@ -268,6 +268,8 @@ namespace DnsFallbackApp
 
         public async Task<DnsDatagram> ProcessRequestAsync(DnsDatagram request, IPEndPoint remoteEP, DnsTransportProtocol protocol, bool isRecursionAllowed)
         {
+            if (_config == null)
+                return null;
             if (_config.IsDebug)
                 _dnsServer.WriteLog($"DnsFallbackApp: Incoming request({request.Question[0].Name}).");
             if (_dnsClient == null)
@@ -332,6 +334,8 @@ namespace DnsFallbackApp
 
         public async Task<DnsDatagram> PostProcessAsync(DnsDatagram request, IPEndPoint remoteEP, DnsTransportProtocol protocol, DnsDatagram response)
         {
+            if (_config == null)
+                return response;
             if (response.Tag is DnsServerResponseType type && type == DnsServerResponseType.Cached && response.Answer.Count != 0)
             {
                 if (_config.IsDebug)
