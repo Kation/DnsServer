@@ -400,7 +400,7 @@ namespace DnsFallbackApp
                                 }
                                 if (resolveAgain)
                                     break;
-                                if (_config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
+                                if (_config.Geo.IsEnabled && _config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
                                 {
                                     if (_geoDatabase.TryCountry(ipAddress, out CountryResponse countryResponse))
                                     {
@@ -427,7 +427,7 @@ namespace DnsFallbackApp
                             }
                         case DnsResourceRecordType.AAAA:
                             {
-                                if (_config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
+                                if (_config.Geo.IsEnabled && _config.Geo.Countries != null && _config.Geo.Countries.Count != 0 && _geoDatabase != null)
                                 {
                                     var ipAddress = ((DnsAAAARecordData)answer.RDATA).Address;
                                     if (_config.IsDebug)
