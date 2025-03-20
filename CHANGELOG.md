@@ -1,5 +1,109 @@
 # Technitium DNS Server Change Log
 
+## Version 13.4.3
+Release Date: 23 February 2025
+
+- Fixed issue of high memory usage when "Last Year" option is used on Dashboard.
+- Fixed multiple issues of DNSSEC validation failures for certain domain names when using forwarders.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.4.2
+Release Date: 15 February 2025
+
+- Fixed issue of unhandled CD flag condition when DO flag is unset in requests for a specific case.
+- Block Page App: Fixed issue with Kestrel local addresses that caused failure to bind on Linux systems.
+- Query Logs (MySQL) App: Updated app to use MySqlConnector driver which allows the app to work with MariaDB too.
+- Query Logs (SQL Server) App: Fixed issue with bulk insert due to limit on parameters per query. Fixed issue with qtype filtering.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.4.1
+Release Date: 2 February 2025
+
+- Fixed issue of unhandled CD flag condition when DO flag is unset in requests.
+- Block Page App: Updated app to show blocking info details on the block page.
+- Query Logs (MySQL) App: Updated app to add server domain to db logs to allow using same db with multiple instances.
+- Query Logs (SQL Server) App: Updated app to add server domain to db logs to allow using same db with multiple instances.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.4
+Release Date: 26 January 2025
+
+- Added implementation to detect spoofed DNS responses over UDP transport and switch to TCP transport to mitigate cache poisoning attempts.
+- Added support for reading minute stats for given custom date time range (for max 2 hours range difference).
+- Added HTTP API and GUI option to export Query Logs as a CSV file.
+- Drop Requests App: Fixed bug that caused matching all requests when unknown record type was configured.
+- Log Exported App: Added new app that supports exporting query logs to file, HTTP, and Syslog sinks. The app was designed and implemented by [Zafer Balkan](https://github.com/zbalkan).
+- Query Logs (SQL Server) App: Added new app that supports logging query logs to Microsoft SQL Server.
+- Query Logs (MySQL) App: Added new app that supports logging query logs to MySQL database server.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.3
+Release Date: 21 December 2024
+
+- Implemented resolver queue mechanism to avoid request timeout error issues caused when too many outbound resolutions were being processed concurrently for large deployments. A new Max Concurrent Resolutions option is now available in Settings > General section to configure the maximum number of concurrent async resolutions per CPU core.
+- Added new Minimum SOA Refresh and Minimum SOA Retry options in Settings > General section to override any Secondary, Stub, Secondary Forwarder, or Secondary Catalog zone SOA values that are smaller than these configured minimum values.
+- Added feature to include Subject Alternative Name (SAN) entry for DNS admin web service local unicast addresses in the self-signed certificate.
+- Fixed bug in NSEC3 non-existent proof generation implementation that caused Denial of Service (DoS) for all DNS protocol services when certain primary and secondary zones are DNSSEC signed using NSEC3.
+- Fixed issue of unhandled exception that caused Denial of Service (DoS) for DNS-over-QUIC service [CVE-2024-56946] reported by Michael Wedl, St. Poelten University of Applied Sciences.
+- Fixed bug in reloading SSL/TLS certificate for DNS admin web service and DNS-over-HTTPS service.
+- Fixed issue with Catalog zone SOA request that caused zone transfer to fail with BIND.
+- Query Logs (Sqlite): Updated the app to support logging response RTT value.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.2.2
+Release Date: 2 December 2024
+
+- Fixed bug that caused DNS response to include bogus records even when Checking Disabled (CD) is set to false in request.
+
+## Version 13.2.1
+Release Date: 30 November 2024
+
+- Updated server to allow DNS-over-HTTPS service to read X-Real-IP header from reverse proxy that are allowed by the ACL.
+- Fixed issue with HTTP/2 on OS versions older than Windows 10 that caused failure to enable HTTPS for admin web service and DNS-over-HTTPS service.
+- Fixed issue with handling connection abort condition for DNS-over-QUIC.
+- Fixed issue with handling a wildcard query case for ENT subdomain names in local zones.
+- Fixed issue with Forwarding where CNAME was not being resolved separately when upstream returned SOA in response authority section.
+- Fixed issue in DNS Application assembly loading implementation that caused issue loading dependencies for some scenarios.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.2
+Release Date: 16 November 2024
+
+- Added new option in Settings to allow configuring reverse proxy network ACL to use with DNS-over-UDP-PROXY, DNS-over-TCP-PROXY, AND DNS-over-HTTP optional protocols.
+- Fixed issue in DNS-over-QUIC protocol client which caused the forwarding to fail to work with timeout error after a while in some cases.
+
+## Version 13.1.1
+Release Date: 9 November 2024
+
+- Fixed issue with HTTP/3 protocol not working for both admin web service and DNS-over-HTTPS/3 service caused due to changes in how Kestrel web server uses application protocol option.
+- Updated DNS-over-HTTPS client implementation such that it will support HTTP/2 and HTTP/1.1 protocols with `https` scheme and only support HTTP/3 protocol with `h3` scheme with no protocol fallback.
+- Fixed issue in DNS-over-TCP and DNS-over-TLS client caused due to some platforms not supporting TCP keep alive socket options.
+- Updated recursive resolver implementation to always attempt to resolve AAAA for name server with missing IPv6 glue record to allow resolution over IPv6 only networks.
+- Filter AAAA App: added new option to configuring default TTL value.
+- DNS Rebinding Protection App: added new option to configure bypass networks.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.1
+Release Date: 19 October 2024
+
+- Added new option to add Secondary Root Zone directly.
+- Added new notify option for Catalog zones to specify separate name servers only for Catalog zone updates.
+- Added option to configure blocking answer's TTL value in Settings.
+- Added option to make the `X-Real-IP` header customizable for admin web service and for DNS-over-HTTP optional protocol.
+- Multiple other minor bug fixes and improvements.
+- Filter AAAA App: updated app to support option to explicitly specify filter domain names.
+
+## Version 13.0.2
+Release Date: 28 September 2024
+
+- Fixed issue with DNS-over-TLS and DNS-over-TCP protocols that would cause the underlying connection to close if original request gets canceled.
+- Multiple other minor bug fixes and improvements.
+
+## Version 13.0.1
+Release Date: 23 September 2024
+
+- Fixed issue in using proxy with forwarders that caused failure to use DNS-over-TOR with Cloudflare's hidden service.
+
 ## Version 13.0
 Release Date: 22 September 2024
 

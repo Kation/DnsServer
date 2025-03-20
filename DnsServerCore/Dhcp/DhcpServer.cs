@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TechnitiumLibrary.Net.Dns;
@@ -472,7 +473,7 @@ namespace DnsServerCore.Dhcp
                             string clientDomainName = null;
 
                             if (!string.IsNullOrWhiteSpace(reservedLeaseHostName))
-                                clientDomainName = reservedLeaseHostName + "." + scope.DomainName;
+                                clientDomainName = GetSanitizedHostName(reservedLeaseHostName) + "." + scope.DomainName;
 
                             if (string.IsNullOrWhiteSpace(clientDomainName))
                             {
@@ -488,8 +489,8 @@ namespace DnsServerCore.Dhcp
 
                             if (string.IsNullOrWhiteSpace(clientDomainName))
                             {
-                                if ((request.HostName != null) && !string.IsNullOrWhiteSpace(request.HostName.HostName))
-                                    clientDomainName = request.HostName.HostName.Replace(' ', '-') + "." + scope.DomainName;
+                                if ((request.HostName is not null) && !string.IsNullOrWhiteSpace(request.HostName.HostName))
+                                    clientDomainName = GetSanitizedHostName(request.HostName.HostName) + "." + scope.DomainName;
                             }
 
                             if (!string.IsNullOrWhiteSpace(clientDomainName))
@@ -610,8 +611,8 @@ namespace DnsServerCore.Dhcp
 
                             if (string.IsNullOrWhiteSpace(clientDomainName))
                             {
-                                if (request.HostName != null)
-                                    clientDomainName = request.HostName.HostName.Replace(' ', '-') + "." + scope.DomainName;
+                                if (request.HostName is not null)
+                                    clientDomainName = GetSanitizedHostName(request.HostName.HostName) + "." + scope.DomainName;
                             }
 
                             if (!string.IsNullOrWhiteSpace(clientDomainName))
@@ -696,6 +697,31 @@ namespace DnsServerCore.Dhcp
 
                 return foundScope;
             }
+        }
+
+        internal static string GetSanitizedHostName(string hostname)
+        {
+            StringBuilder sb = new StringBuilder(hostname.Length);
+
+            foreach (char c in hostname)
+            {
+                if ((c >= 97) && (c <= 122)) //[a-z]
+                    sb.Append(c);
+                else if ((c >= 65) && (c <= 90)) //[A-Z]
+                    sb.Append(c);
+                else if ((c >= 48) && (c <= 57)) //[0-9]
+                    sb.Append(c);
+                else if (c == 45) //[-]
+                    sb.Append(c);
+                else if (c == 95) //[_]
+                    sb.Append(c);
+                else if (c == '.')
+                    sb.Append(c);
+                else if (c == ' ')
+                    sb.Append('-');
+            }
+
+            return sb.ToString();
         }
 
         private void UpdateDnsAuthZone(bool add, Scope scope, Lease lease)
@@ -793,7 +819,10 @@ namespace DnsServerCore.Dhcp
                     }
 
                     DnsResourceRecord aRecord = new DnsResourceRecord(domain, DnsResourceRecordType.A, DnsClass.IN, scope.DnsTtl, new DnsARecordData(address));
-                    aRecord.GetAuthGenericRecordInfo().LastModified = DateTime.UtcNow;
+
+                    GenericRecordInfo aRecordInfo = aRecord.GetAuthGenericRecordInfo();
+                    aRecordInfo.LastModified = DateTime.UtcNow;
+                    aRecordInfo.Comments = $"Via '{scope.Name}' DHCP scope";
 
                     _dnsServer.AuthZoneManager.SetRecord(zoneName, aRecord);
                     _log?.Write("DHCP Server updated DNS A record '" + domain + "' with IP address [" + address.ToString() + "].");
@@ -847,7 +876,10 @@ namespace DnsServerCore.Dhcp
                     reverseZoneName = reverseZoneInfo.Name;
 
                     DnsResourceRecord ptrRecord = new DnsResourceRecord(reverseDomain, DnsResourceRecordType.PTR, DnsClass.IN, scope.DnsTtl, new DnsPTRRecordData(domain));
-                    ptrRecord.GetAuthGenericRecordInfo().LastModified = DateTime.UtcNow;
+
+                    GenericRecordInfo ptrRecordInfo = aRecord.GetAuthGenericRecordInfo();
+                    ptrRecordInfo.LastModified = DateTime.UtcNow;
+                    ptrRecordInfo.Comments = $"Via '{scope.Name}' DHCP scope";
 
                     _dnsServer.AuthZoneManager.SetRecord(reverseZoneName, ptrRecord);
 

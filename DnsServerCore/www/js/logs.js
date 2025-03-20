@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ $(function () {
         for (var i = 0; i < appsList.length; i++) {
             if (appsList[i].name == appName) {
                 for (var j = 0; j < appsList[i].dnsApps.length; j++) {
-                    if (appsList[i].dnsApps[j].isQueryLogger)
+                    if (appsList[i].dnsApps[j].isQueryLogs)
                         optClassPaths += "<option>" + appsList[i].dnsApps[j].classPath + "</option>";
                 }
 
@@ -212,7 +212,7 @@ function refreshQueryLogsTab(doQueryLogs) {
 
             for (var i = 0; i < apps.length; i++) {
                 for (var j = 0; j < apps[i].dnsApps.length; j++) {
-                    if (apps[i].dnsApps[j].isQueryLogger) {
+                    if (apps[i].dnsApps[j].isQueryLogs) {
                         optApps += "<option>" + apps[i].name + "</option>";
 
                         if (currentAppName == null)
@@ -226,7 +226,7 @@ function refreshQueryLogsTab(doQueryLogs) {
             for (var i = 0; i < apps.length; i++) {
                 if (apps[i].name == currentAppName) {
                     for (var j = 0; j < apps[i].dnsApps.length; j++) {
-                        if (apps[i].dnsApps[j].isQueryLogger)
+                        if (apps[i].dnsApps[j].isQueryLogs)
                             optClassPaths += "<option>" + apps[i].dnsApps[j].classPath + "</option>";
                     }
 
@@ -280,7 +280,7 @@ function queryLogs(pageNumber) {
 
     var name = $("#optQueryLogsAppName").val();
     if (name == null) {
-        showAlert("warning", "Missing!", "Please install a DNS App that supports query logging feature.");
+        showAlert("warning", "Missing!", "Please install the 'Query Logs (Sqlite)' DNS App or any other DNS app that supports query logging feature.");
         $("#optQueryLogsAppName").focus();
         return false;
     }
@@ -334,7 +334,7 @@ function queryLogs(pageNumber) {
                     moment(responseJSON.response.entries[i].timestamp).local().format("YYYY-MM-DD HH:mm:ss") + "</td><td>" +
                     responseJSON.response.entries[i].clientIpAddress + "</td><td>" +
                     responseJSON.response.entries[i].protocol + "</td><td>" +
-                    responseJSON.response.entries[i].responseType + "</td><td>" +
+                    responseJSON.response.entries[i].responseType + (responseJSON.response.entries[i].responseRtt == null ? "" : "<div style=\"font-size: 12px;\">(" + responseJSON.response.entries[i].responseRtt.toFixed(2) + " ms)</div>") + "</td><td>" +
                     responseJSON.response.entries[i].rcode + "</td><td style=\"word-break: break-all;\">" +
                     htmlEncode(responseJSON.response.entries[i].qname == "" ? "." : responseJSON.response.entries[i].qname) + "</td><td>" +
                     (responseJSON.response.entries[i].qtype == null ? "" : responseJSON.response.entries[i].qtype) + "</td><td>" +
@@ -446,4 +446,41 @@ function showQueryLogs(domain, clientIp) {
     $("#modalTopStats").modal("hide");
 
     refreshQueryLogsTab(true);
+}
+
+function exportQueryLogsCsv() {
+    var name = $("#optQueryLogsAppName").val();
+    if (name == null) {
+        showAlert("warning", "Missing!", "Please install the 'Query Logs (Sqlite)' DNS App or any other DNS app that supports query logging feature.");
+        $("#optQueryLogsAppName").focus();
+        return false;
+    }
+
+    var classPath = $("#optQueryLogsClassPath").val();
+    if (classPath == null) {
+        showAlert("warning", "Missing!", "Please select a Class Path to query logs.");
+        $("#optQueryLogsClassPath").focus();
+        return false;
+    }
+
+    var start = $("#txtQueryLogStart").val();
+    if (start != "")
+        start = moment(start).toISOString();
+
+    var end = $("#txtQueryLogEnd").val();
+    if (end != "")
+        end = moment(end).toISOString();
+
+    var clientIpAddress = $("#txtQueryLogClientIpAddress").val();
+    var protocol = $("#optQueryLogsProtocol").val();
+    var responseType = $("#optQueryLogsResponseType").val();
+    var rcode = $("#optQueryLogsResponseCode").val();
+    var qname = $("#txtQueryLogQName").val();
+    var qtype = $("#txtQueryLogQType").val();
+    var qclass = $("#optQueryLogQClass").val();
+
+    window.open("/api/logs/export?token=" + sessionData.token + "&name=" + encodeURIComponent(name) + "&classPath=" + encodeURIComponent(classPath) +
+        "&start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end) + "&clientIpAddress=" + encodeURIComponent(clientIpAddress) +
+        "&protocol=" + protocol + "&responseType=" + responseType + "&rcode=" + rcode + "&qname=" + encodeURIComponent(qname) + "&qtype=" + qtype + "&qclass=" + qclass
+        , "_blank");
 }

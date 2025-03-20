@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -58,25 +58,25 @@ using TechnitiumLibrary.Net.Proxy;
 
 namespace DnsServerCore
 {
-    public sealed class DnsWebService : IAsyncDisposable, IDisposable
+    public sealed partial class DnsWebService : IAsyncDisposable, IDisposable
     {
         #region variables
 
         readonly static char[] commaSeparator = new char[] { ',' };
 
-        internal readonly Version _currentVersion;
-        internal readonly DateTime _uptimestamp = DateTime.UtcNow;
+        readonly Version _currentVersion;
+        readonly DateTime _uptimestamp = DateTime.UtcNow;
         readonly string _appFolder;
-        internal readonly string _configFolder;
+        readonly string _configFolder;
 
-        internal readonly LogManager _log;
-        internal readonly AuthManager _authManager;
+        readonly LogManager _log;
+        readonly AuthManager _authManager;
 
         readonly WebServiceApi _api;
         readonly WebServiceDashboardApi _dashboardApi;
-        internal readonly WebServiceZonesApi _zonesApi;
+        readonly WebServiceZonesApi _zonesApi;
         readonly WebServiceOtherZonesApi _otherZonesApi;
-        internal readonly WebServiceAppsApi _appsApi;
+        readonly WebServiceAppsApi _appsApi;
         readonly WebServiceSettingsApi _settingsApi;
         readonly WebServiceDhcpApi _dhcpApi;
         readonly WebServiceAuthApi _authApi;
@@ -90,24 +90,25 @@ namespace DnsServerCore
         DhcpServer _dhcpServer;
 
         //web service
-        internal IReadOnlyList<IPAddress> _webServiceLocalAddresses = new IPAddress[] { IPAddress.Any, IPAddress.IPv6Any };
-        internal int _webServiceHttpPort = 5380;
-        internal int _webServiceTlsPort = 53443;
-        internal bool _webServiceEnableTls;
-        internal bool _webServiceEnableHttp3;
-        internal bool _webServiceHttpToTlsRedirect;
-        internal bool _webServiceUseSelfSignedTlsCertificate;
-        internal string _webServiceTlsCertificatePath;
-        internal string _webServiceTlsCertificatePassword;
+        IReadOnlyList<IPAddress> _webServiceLocalAddresses = new IPAddress[] { IPAddress.Any, IPAddress.IPv6Any };
+        int _webServiceHttpPort = 5380;
+        int _webServiceTlsPort = 53443;
+        bool _webServiceEnableTls;
+        bool _webServiceEnableHttp3;
+        bool _webServiceHttpToTlsRedirect;
+        bool _webServiceUseSelfSignedTlsCertificate;
+        string _webServiceTlsCertificatePath;
+        string _webServiceTlsCertificatePassword;
         DateTime _webServiceTlsCertificateLastModifiedOn;
+        string _webServiceRealIpHeader = "X-Real-IP";
 
         //optional protocols
-        internal string _dnsTlsCertificatePath;
-        internal string _dnsTlsCertificatePassword;
+        string _dnsTlsCertificatePath;
+        string _dnsTlsCertificatePassword;
         DateTime _dnsTlsCertificateLastModifiedOn;
 
         //cache
-        internal bool _saveCache = true;
+        bool _saveCache = true;
 
         Timer _tlsCertificateUpdateTimer;
         const int TLS_CERTIFICATE_UPDATE_TIMER_INITIAL_INTERVAL = 60000;
@@ -234,7 +235,7 @@ namespace DnsServerCore
 
         #region internal
 
-        internal string ConvertToRelativePath(string path)
+        private string ConvertToRelativePath(string path)
         {
             if (path.StartsWith(_configFolder, Environment.OSVersion.Platform == PlatformID.Win32NT ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
                 path = path.Substring(_configFolder.Length).TrimStart(Path.DirectorySeparatorChar);
@@ -242,7 +243,7 @@ namespace DnsServerCore
             return path;
         }
 
-        internal string ConvertToAbsolutePath(string path)
+        private string ConvertToAbsolutePath(string path)
         {
             if (path is null)
                 return null;
@@ -257,12 +258,12 @@ namespace DnsServerCore
 
         #region server version
 
-        internal string GetServerVersion()
+        private string GetServerVersion()
         {
             return GetCleanVersion(_currentVersion);
         }
 
-        internal static string GetCleanVersion(Version version)
+        private static string GetCleanVersion(Version version)
         {
             string strVersion = version.Major + "." + version.Minor;
 
@@ -279,11 +280,11 @@ namespace DnsServerCore
 
         #region web service
 
-        internal async Task TryStartWebServiceAsync(IReadOnlyList<IPAddress> oldWebServiceLocalAddresses, int oldWebServiceHttpPort, int oldWebServiceTlsPort)
+        private async Task TryStartWebServiceAsync(IReadOnlyList<IPAddress> oldWebServiceLocalAddresses, int oldWebServiceHttpPort, int oldWebServiceTlsPort)
         {
             try
             {
-                _webServiceLocalAddresses = DnsServer.GetValidKestralLocalAddresses(_webServiceLocalAddresses);
+                _webServiceLocalAddresses = WebUtilities.GetValidKestrelLocalAddresses(_webServiceLocalAddresses);
 
                 await StartWebServiceAsync(_webServiceLocalAddresses, _webServiceHttpPort, _webServiceTlsPort, false);
                 return;
@@ -297,7 +298,7 @@ namespace DnsServerCore
 
             try
             {
-                _webServiceLocalAddresses = DnsServer.GetValidKestralLocalAddresses(oldWebServiceLocalAddresses);
+                _webServiceLocalAddresses = WebUtilities.GetValidKestrelLocalAddresses(oldWebServiceLocalAddresses);
                 _webServiceHttpPort = oldWebServiceHttpPort;
                 _webServiceTlsPort = oldWebServiceTlsPort;
 
@@ -317,7 +318,7 @@ namespace DnsServerCore
             {
                 _webServiceLocalAddresses = new IPAddress[] { IPAddress.Any };
 
-                await StartWebServiceAsync(_webServiceLocalAddresses, _webServiceHttpPort, _webServiceTlsPort, false);
+                await StartWebServiceAsync(_webServiceLocalAddresses, _webServiceHttpPort, _webServiceTlsPort, true);
                 return;
             }
             catch (Exception ex3)
@@ -332,7 +333,7 @@ namespace DnsServerCore
             await StartWebServiceAsync(_webServiceLocalAddresses, _webServiceHttpPort, _webServiceTlsPort, true);
         }
 
-        private async Task StartWebServiceAsync(IReadOnlyList<IPAddress> webServiceLocalAddresses, int webServiceHttpPort, int webServiceTlsPort, bool safeMode)
+        private async Task StartWebServiceAsync(IReadOnlyList<IPAddress> webServiceLocalAddresses, int webServiceHttpPort, int webServiceTlsPort, bool httpOnlyMode)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder();
 
@@ -355,13 +356,19 @@ namespace DnsServerCore
                     serverOptions.Listen(webServiceLocalAddress, webServiceHttpPort);
 
                 //https
-                if (!safeMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
+                if (!httpOnlyMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
                 {
                     foreach (IPAddress webServiceLocalAddress in webServiceLocalAddresses)
                     {
                         serverOptions.Listen(webServiceLocalAddress, webServiceTlsPort, delegate (ListenOptions listenOptions)
                         {
-                            listenOptions.Protocols = _webServiceEnableHttp3 ? HttpProtocols.Http1AndHttp2AndHttp3 : HttpProtocols.Http1AndHttp2;
+                            if (_webServiceEnableHttp3)
+                                listenOptions.Protocols = HttpProtocols.Http1AndHttp2AndHttp3;
+                            else if (IsHttp2Supported())
+                                listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                            else
+                                listenOptions.Protocols = HttpProtocols.Http1;
+
                             listenOptions.UseHttps(delegate (SslStream stream, SslClientHelloInfo clientHelloInfo, object state, CancellationToken cancellationToken)
                             {
                                 return ValueTask.FromResult(_webServiceSslServerAuthenticationOptions);
@@ -383,7 +390,7 @@ namespace DnsServerCore
 
             _webService = builder.Build();
 
-            if (_webServiceHttpToTlsRedirect && !safeMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
+            if (_webServiceHttpToTlsRedirect && !httpOnlyMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
                 _webService.Use(WebServiceHttpsRedirectionMiddleware);
 
             _webService.UseDefaultFiles();
@@ -392,7 +399,7 @@ namespace DnsServerCore
                 OnPrepareResponse = delegate (StaticFileResponseContext ctx)
                 {
                     ctx.Context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
-                    ctx.Context.Response.Headers.CacheControl = "private, max-age=300";
+                    ctx.Context.Response.Headers.CacheControl = "no-cache";
                 },
                 ServeUnknownFileTypes = true
             });
@@ -407,7 +414,7 @@ namespace DnsServerCore
                 {
                     _log?.Write(new IPEndPoint(webServiceLocalAddress, webServiceHttpPort), "Http", "Web Service was bound successfully.");
 
-                    if (!safeMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
+                    if (!httpOnlyMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
                         _log?.Write(new IPEndPoint(webServiceLocalAddress, webServiceTlsPort), "Https", "Web Service was bound successfully.");
                 }
             }
@@ -419,7 +426,7 @@ namespace DnsServerCore
                 {
                     _log?.Write(new IPEndPoint(webServiceLocalAddress, webServiceHttpPort), "Http", "Web Service failed to bind.");
 
-                    if (!safeMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
+                    if (!httpOnlyMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
                         _log?.Write(new IPEndPoint(webServiceLocalAddress, webServiceTlsPort), "Https", "Web Service failed to bind.");
                 }
 
@@ -427,12 +434,30 @@ namespace DnsServerCore
             }
         }
 
-        internal async Task StopWebServiceAsync()
+        private async Task StopWebServiceAsync()
         {
             if (_webService is not null)
             {
                 await _webService.DisposeAsync();
                 _webService = null;
+            }
+        }
+
+        private bool IsHttp2Supported()
+        {
+            if (_webServiceEnableHttp3)
+                return true;
+
+            switch (Environment.OSVersion.Platform)
+            {
+                case PlatformID.Win32NT:
+                    return Environment.OSVersion.Version.Major >= 10; //http/2 supported on Windows Server 2016/Windows 10 or later
+
+                case PlatformID.Unix:
+                    return true; //http/2 supported on Linux with OpenSSL 1.0.2 or later (for example, Ubuntu 16.04 or later)
+
+                default:
+                    return false;
             }
         }
 
@@ -534,7 +559,7 @@ namespace DnsServerCore
 
             //settings
             _webService.MapGetAndPost("/api/settings/get", _settingsApi.GetDnsSettings);
-            _webService.MapGetAndPost("/api/settings/set", _settingsApi.SetDnsSettings);
+            _webService.MapGetAndPost("/api/settings/set", _settingsApi.SetDnsSettingsAsync);
             _webService.MapGetAndPost("/api/settings/getTsigKeyNames", _settingsApi.GetTsigKeyNames);
             _webService.MapGetAndPost("/api/settings/forceUpdateBlockLists", _settingsApi.ForceUpdateBlockLists);
             _webService.MapGetAndPost("/api/settings/temporaryDisableBlocking", _settingsApi.TemporaryDisableBlocking);
@@ -579,6 +604,7 @@ namespace DnsServerCore
             _webService.MapGetAndPost("/api/logs/delete", _logsApi.DeleteLog);
             _webService.MapGetAndPost("/api/logs/deleteAll", _logsApi.DeleteAllLogs);
             _webService.MapGetAndPost("/api/logs/query", _logsApi.QueryLogsAsync);
+            _webService.MapGetAndPost("/api/logs/export", _logsApi.ExportLogsAsync);
         }
 
         private Task WebServiceHttpsRedirectionMiddleware(HttpContext context, RequestDelegate next)
@@ -618,6 +644,7 @@ namespace DnsServerCore
                 case "/api/blocked/export":
                 case "/api/settings/backup":
                 case "/api/logs/download":
+                case "/api/logs/export":
                     {
                         if (!TryGetSession(context, out UserSession session))
                             throw new InvalidTokenWebServiceException("Invalid token or session expired.");
@@ -711,7 +738,7 @@ namespace DnsServerCore
                         jsonWriter.WriteEndObject();
                     }
 
-                    _log.Write(context.GetRemoteEndPoint(), ex);
+                    _log.Write(context.GetRemoteEndPoint(_webServiceRealIpHeader), ex);
                 }
             });
         }
@@ -730,7 +757,7 @@ namespace DnsServerCore
                 return false;
             }
 
-            IPEndPoint remoteEP = context.GetRemoteEndPoint();
+            IPEndPoint remoteEP = context.GetRemoteEndPoint(_webServiceRealIpHeader);
 
             session.UpdateLastSeen(remoteEP.Address, context.Request.Headers.UserAgent);
             return true;
@@ -740,7 +767,7 @@ namespace DnsServerCore
 
         #region tls
 
-        internal void StartTlsCertificateUpdateTimer()
+        private void StartTlsCertificateUpdateTimer()
         {
             if (_tlsCertificateUpdateTimer is null)
             {
@@ -784,7 +811,7 @@ namespace DnsServerCore
             }
         }
 
-        internal void StopTlsCertificateUpdateTimer()
+        private void StopTlsCertificateUpdateTimer()
         {
             if (_tlsCertificateUpdateTimer is not null)
             {
@@ -793,7 +820,7 @@ namespace DnsServerCore
             }
         }
 
-        internal void LoadWebServiceTlsCertificate(string tlsCertificatePath, string tlsCertificatePassword)
+        private void LoadWebServiceTlsCertificate(string tlsCertificatePath, string tlsCertificatePassword)
         {
             FileInfo fileInfo = new FileInfo(tlsCertificatePath);
 
@@ -828,18 +855,28 @@ namespace DnsServerCore
                 throw new ArgumentException("Web Service TLS certificate file must contain a certificate with private key.");
 
             _webServiceCertificateCollection = certificateCollection;
+            _webServiceTlsCertificateLastModifiedOn = fileInfo.LastWriteTimeUtc;
+
+            List<SslApplicationProtocol> applicationProtocols = new List<SslApplicationProtocol>();
+
+            if (_webServiceEnableHttp3)
+                applicationProtocols.Add(new SslApplicationProtocol("h3"));
+
+            if (IsHttp2Supported())
+                applicationProtocols.Add(new SslApplicationProtocol("h2"));
+
+            applicationProtocols.Add(new SslApplicationProtocol("http/1.1"));
 
             _webServiceSslServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
+                ApplicationProtocols = applicationProtocols,
                 ServerCertificateContext = SslStreamCertificateContext.Create(serverCertificate, _webServiceCertificateCollection, false)
             };
-
-            _webServiceTlsCertificateLastModifiedOn = fileInfo.LastWriteTimeUtc;
 
             _log.Write("Web Service TLS certificate was loaded: " + tlsCertificatePath);
         }
 
-        internal void LoadDnsTlsCertificate(string tlsCertificatePath, string tlsCertificatePassword)
+        private void LoadDnsTlsCertificate(string tlsCertificatePath, string tlsCertificatePassword)
         {
             FileInfo fileInfo = new FileInfo(tlsCertificatePath);
 
@@ -865,7 +902,7 @@ namespace DnsServerCore
             _log.Write("DNS Server TLS certificate was loaded: " + tlsCertificatePath);
         }
 
-        internal void SelfSignedCertCheck(bool generateNew, bool throwException)
+        private void SelfSignedCertCheck(bool generateNew, bool throwException)
         {
             string selfSignedCertificateFilePath = Path.Combine(_configFolder, "self-signed-cert.pfx");
 
@@ -880,6 +917,22 @@ namespace DnsServerCore
                 {
                     RSA rsa = RSA.Create(2048);
                     CertificateRequest req = new CertificateRequest("cn=" + _dnsServer.ServerDomain, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+                    SubjectAlternativeNameBuilder san = new SubjectAlternativeNameBuilder();
+                    bool sanAdded = false;
+
+                    foreach (IPAddress localAddress in _webServiceLocalAddresses)
+                    {
+                        if (localAddress.Equals(IPAddress.IPv6Any) || localAddress.Equals(IPAddress.Any))
+                            continue;
+
+                        san.AddIpAddress(localAddress);
+                        sanAdded = true;
+                    }
+
+                    if (sanAdded)
+                        req.CertificateExtensions.Add(san.Build());
+
                     X509Certificate2 cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(5));
 
                     File.WriteAllBytes(selfSignedCertificateFilePath, cert.Export(X509ContentType.Pkcs12, null as string));
@@ -890,6 +943,15 @@ namespace DnsServerCore
                     try
                     {
                         LoadWebServiceTlsCertificate(selfSignedCertificateFilePath, null);
+
+                        if (!generateNew)
+                        {
+                            if (_webServiceSslServerAuthenticationOptions.ServerCertificateContext.TargetCertificate.NotAfter < DateTime.UtcNow.AddYears(1))
+                            {
+                                _log.Write("Web Service TLS self signed certificate is nearing expiration and will be regenerated.");
+                                SelfSignedCertCheck(true, throwException); //force generate new cert
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -910,7 +972,7 @@ namespace DnsServerCore
 
         #region quic
 
-        internal static void ValidateQuicSupport(string protocolName = "DNS-over-QUIC")
+        private static void ValidateQuicSupport(string protocolName = "DNS-over-QUIC")
         {
 #pragma warning disable CA2252 // This API requires opting into preview features
 #pragma warning disable CA1416 // Validate platform compatibility
@@ -922,7 +984,7 @@ namespace DnsServerCore
 #pragma warning restore CA2252 // This API requires opting into preview features
         }
 
-        internal static bool IsQuicSupported()
+        private static bool IsQuicSupported()
         {
 #pragma warning disable CA2252 // This API requires opting into preview features
 #pragma warning disable CA1416 // Validate platform compatibility
@@ -937,7 +999,7 @@ namespace DnsServerCore
 
         #region config
 
-        internal void LoadConfigFile()
+        private void LoadConfigFile()
         {
             string configFile = Path.Combine(_configFolder, "dns.config");
 
@@ -1105,6 +1167,7 @@ namespace DnsServerCore
                     _log.UseLocalTime = bool.Parse(strUseLocalTime);
 
                 _dnsServer.StatsManager.EnableInMemoryStats = false;
+                _dnsServer.StatsManager.MaxStatFileDays = 365;
 
                 SaveConfigFileInternal();
             }
@@ -1157,7 +1220,7 @@ namespace DnsServerCore
             _log.Write("DNS Server config file was saved: " + configFile);
         }
 
-        internal void SaveConfigFile()
+        public void SaveConfigFile()
         {
             lock (_saveLock)
             {
@@ -1169,7 +1232,7 @@ namespace DnsServerCore
             }
         }
 
-        internal void InspectAndFixZonePermissions()
+        private void InspectAndFixZonePermissions()
         {
             Permission permission = _authManager.GetPermission(PermissionSection.Zones);
             if (permission is null)
@@ -1220,7 +1283,7 @@ namespace DnsServerCore
 
             int version = bR.ReadByte();
 
-            if ((version >= 28) && (version <= 37))
+            if ((version >= 28) && (version <= 40))
             {
                 ReadConfigFrom(bR, version);
             }
@@ -1231,11 +1294,16 @@ namespace DnsServerCore
                 //new default settings
                 DnsClientConnection.IPv4SourceAddresses = null;
                 DnsClientConnection.IPv6SourceAddresses = null;
+                _dnsServer.MaxConcurrentResolutionsPerCore = 100;
                 _appsApi.EnableAutomaticUpdate = true;
                 _webServiceEnableHttp3 = _webServiceEnableTls && IsQuicSupported();
                 _dnsServer.EnableDnsOverHttp3 = _dnsServer.EnableDnsOverHttps && IsQuicSupported();
+                _webServiceRealIpHeader = "X-Real-IP";
+                _dnsServer.DnsOverHttpRealIpHeader = "X-Real-IP";
                 _dnsServer.ResponsiblePersonInternal = null;
                 _dnsServer.AuthZoneManager.UseSoaSerialDateScheme = false;
+                _dnsServer.AuthZoneManager.MinSoaRefresh = 300;
+                _dnsServer.AuthZoneManager.MinSoaRetry = 300;
                 _dnsServer.ZoneTransferAllowedNetworks = null;
                 _dnsServer.NotifyAllowedNetworks = null;
                 _dnsServer.EDnsClientSubnet = false;
@@ -1244,7 +1312,24 @@ namespace DnsServerCore
                 _dnsServer.EDnsClientSubnetIpv4Override = null;
                 _dnsServer.EDnsClientSubnetIpv6Override = null;
                 _dnsServer.QpmLimitBypassList = null;
+
+                if (_dnsServer.EnableDnsOverUdpProxy || _dnsServer.EnableDnsOverTcpProxy || _dnsServer.EnableDnsOverHttp)
+                {
+                    _dnsServer.ReverseProxyNetworkACL =
+                        [
+                            new NetworkAccessControl(IPAddress.Parse("127.0.0.0"), 8),
+                            new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8),
+                            new NetworkAccessControl(IPAddress.Parse("100.64.0.0"), 10),
+                            new NetworkAccessControl(IPAddress.Parse("169.254.0.0"), 16),
+                            new NetworkAccessControl(IPAddress.Parse("172.16.0.0"), 12),
+                            new NetworkAccessControl(IPAddress.Parse("192.168.0.0"), 16),
+                            new NetworkAccessControl(IPAddress.Parse("2000::"), 3, true),
+                            new NetworkAccessControl(IPAddress.IPv6Any, 0)
+                        ];
+                }
+
                 _dnsServer.BlockingBypassList = null;
+                _dnsServer.BlockingAnswerTtl = 30;
                 _dnsServer.ResolverConcurrency = 2;
                 _dnsServer.CacheZoneManager.ServeStaleAnswerTtl = CacheZoneManager.SERVE_STALE_ANSWER_TTL;
                 _dnsServer.CacheZoneManager.ServeStaleResetTtl = CacheZoneManager.SERVE_STALE_RESET_TTL;
@@ -1318,6 +1403,11 @@ namespace DnsServerCore
                 }
 
                 SelfSignedCertCheck(false, false);
+
+                if (version >= 38)
+                    _webServiceRealIpHeader = bR.ReadShortString();
+                else
+                    _webServiceRealIpHeader = "X-Real-IP";
             }
 
             //dns
@@ -1369,15 +1459,25 @@ namespace DnsServerCore
                 }
 
                 if (version >= 33)
-                {
                     _dnsServer.AuthZoneManager.UseSoaSerialDateScheme = bR.ReadBoolean();
-                    _dnsServer.ZoneTransferAllowedNetworks = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
+                else
+                    _dnsServer.AuthZoneManager.UseSoaSerialDateScheme = false;
+
+                if (version >= 40)
+                {
+                    _dnsServer.AuthZoneManager.MinSoaRefresh = bR.ReadUInt32();
+                    _dnsServer.AuthZoneManager.MinSoaRetry = bR.ReadUInt32();
                 }
                 else
                 {
-                    _dnsServer.AuthZoneManager.UseSoaSerialDateScheme = false;
-                    _dnsServer.ZoneTransferAllowedNetworks = null;
+                    _dnsServer.AuthZoneManager.MinSoaRefresh = 300;
+                    _dnsServer.AuthZoneManager.MinSoaRetry = 300;
                 }
+
+                if (version >= 33)
+                    _dnsServer.ZoneTransferAllowedNetworks = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
+                else
+                    _dnsServer.ZoneTransferAllowedNetworks = null;
 
                 if (version >= 34)
                     _dnsServer.NotifyAllowedNetworks = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
@@ -1454,6 +1554,11 @@ namespace DnsServerCore
                     _dnsServer.QuicMaxInboundStreams = 100;
                     _dnsServer.ListenBacklog = 100;
                 }
+
+                if (version >= 40)
+                    _dnsServer.MaxConcurrentResolutionsPerCore = bR.ReadUInt16();
+                else
+                    _dnsServer.MaxConcurrentResolutionsPerCore = 100;
 
                 //optional protocols
                 if (version >= 32)
@@ -1532,6 +1637,28 @@ namespace DnsServerCore
                     _dnsServer.DnsOverQuicPort = 853;
                 }
 
+                if (version >= 39)
+                {
+                    _dnsServer.ReverseProxyNetworkACL = AuthZoneInfo.ReadNetworkACLFrom(bR);
+                }
+                else
+                {
+                    if (_dnsServer.EnableDnsOverUdpProxy || _dnsServer.EnableDnsOverTcpProxy || _dnsServer.EnableDnsOverHttp)
+                    {
+                        _dnsServer.ReverseProxyNetworkACL =
+                            [
+                                new NetworkAccessControl(IPAddress.Parse("127.0.0.0"), 8),
+                                new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8),
+                                new NetworkAccessControl(IPAddress.Parse("100.64.0.0"), 10),
+                                new NetworkAccessControl(IPAddress.Parse("169.254.0.0"), 16),
+                                new NetworkAccessControl(IPAddress.Parse("172.16.0.0"), 12),
+                                new NetworkAccessControl(IPAddress.Parse("192.168.0.0"), 16),
+                                new NetworkAccessControl(IPAddress.Parse("2000::"), 3, true),
+                                new NetworkAccessControl(IPAddress.IPv6Any, 0)
+                            ];
+                    }
+                }
+
                 _dnsTlsCertificatePath = bR.ReadShortString();
                 _dnsTlsCertificatePassword = bR.ReadShortString();
 
@@ -1553,6 +1680,11 @@ namespace DnsServerCore
 
                     StartTlsCertificateUpdateTimer();
                 }
+
+                if (version >= 38)
+                    _dnsServer.DnsOverHttpRealIpHeader = bR.ReadShortString();
+                else
+                    _dnsServer.DnsOverHttpRealIpHeader = "X-Real-IP";
 
                 //tsig
                 {
@@ -1642,6 +1774,11 @@ namespace DnsServerCore
                     _dnsServer.BlockingBypassList = null;
 
                 _dnsServer.BlockingType = (DnsServerBlockingType)bR.ReadByte();
+
+                if (version >= 38)
+                    _dnsServer.BlockingAnswerTtl = bR.ReadUInt32();
+                else
+                    _dnsServer.BlockingAnswerTtl = 30;
 
                 {
                     //read custom blocking addresses
@@ -1778,7 +1915,13 @@ namespace DnsServerCore
                 else
                     _dnsServer.StatsManager.EnableInMemoryStats = false;
 
-                _dnsServer.StatsManager.MaxStatFileDays = bR.ReadInt32();
+                {
+                    int maxStatFileDays = bR.ReadInt32();
+                    if (maxStatFileDays < 0)
+                        maxStatFileDays = 0;
+
+                    _dnsServer.StatsManager.MaxStatFileDays = maxStatFileDays;
+                }
             }
 
             if ((_webServiceTlsCertificatePath == null) && (_dnsTlsCertificatePath == null))
@@ -1851,9 +1994,17 @@ namespace DnsServerCore
                 _dnsServer.QueryLogManager = _log;
 
             if (version >= 14)
-                _dnsServer.StatsManager.MaxStatFileDays = bR.ReadInt32();
+            {
+                int maxStatFileDays = bR.ReadInt32();
+                if (maxStatFileDays < 0)
+                    maxStatFileDays = 0;
+
+                _dnsServer.StatsManager.MaxStatFileDays = maxStatFileDays;
+            }
             else
+            {
                 _dnsServer.StatsManager.MaxStatFileDays = 0;
+            }
 
             if (version >= 17)
             {
@@ -2388,7 +2539,7 @@ namespace DnsServerCore
         private void WriteConfigTo(BinaryWriter bW)
         {
             bW.Write(Encoding.ASCII.GetBytes("DS")); //format
-            bW.Write((byte)37); //version
+            bW.Write((byte)40); //version
 
             //web service
             {
@@ -2416,6 +2567,8 @@ namespace DnsServerCore
                     bW.WriteShortString(string.Empty);
                 else
                     bW.WriteShortString(_webServiceTlsCertificatePassword);
+
+                bW.WriteShortString(_webServiceRealIpHeader);
             }
 
             //dns
@@ -2441,6 +2594,8 @@ namespace DnsServerCore
                     bW.WriteShortString(_dnsServer.ResponsiblePersonInternal.Address);
 
                 bW.Write(_dnsServer.AuthZoneManager.UseSoaSerialDateScheme);
+                bW.Write(_dnsServer.AuthZoneManager.MinSoaRefresh);
+                bW.Write(_dnsServer.AuthZoneManager.MinSoaRetry);
 
                 AuthZoneInfo.WriteNetworkAddressesTo(_dnsServer.ZoneTransferAllowedNetworks, bW);
                 AuthZoneInfo.WriteNetworkAddressesTo(_dnsServer.NotifyAllowedNetworks, bW);
@@ -2489,6 +2644,7 @@ namespace DnsServerCore
                 bW.Write(_dnsServer.QuicIdleTimeout);
                 bW.Write(_dnsServer.QuicMaxInboundStreams);
                 bW.Write(_dnsServer.ListenBacklog);
+                bW.Write(_dnsServer.MaxConcurrentResolutionsPerCore);
 
                 //optional protocols
                 bW.Write(_dnsServer.EnableDnsOverUdpProxy);
@@ -2506,6 +2662,8 @@ namespace DnsServerCore
                 bW.Write(_dnsServer.DnsOverHttpsPort);
                 bW.Write(_dnsServer.DnsOverQuicPort);
 
+                AuthZoneInfo.WriteNetworkACLTo(_dnsServer.ReverseProxyNetworkACL, bW);
+
                 if (_dnsTlsCertificatePath == null)
                     bW.WriteShortString(string.Empty);
                 else
@@ -2515,6 +2673,8 @@ namespace DnsServerCore
                     bW.WriteShortString(string.Empty);
                 else
                     bW.WriteShortString(_dnsTlsCertificatePassword);
+
+                bW.WriteShortString(_dnsServer.DnsOverHttpRealIpHeader);
 
                 //tsig
                 if (_dnsServer.TsigKeys is null)
@@ -2572,6 +2732,7 @@ namespace DnsServerCore
                 AuthZoneInfo.WriteNetworkAddressesTo(_dnsServer.BlockingBypassList, bW);
 
                 bW.Write((byte)_dnsServer.BlockingType);
+                bW.Write(_dnsServer.BlockingAnswerTtl);
 
                 {
                     bW.Write(Convert.ToByte(_dnsServer.CustomBlockingARecords.Count + _dnsServer.CustomBlockingAAAARecords.Count));
@@ -2831,7 +2992,6 @@ namespace DnsServerCore
                 }
 
                 _log?.Write("DNS Server (v" + _currentVersion.ToString() + ") was stopped successfully.");
-                _dnsServer = null;
             }
             catch (Exception ex)
             {
@@ -2854,12 +3014,6 @@ namespace DnsServerCore
 
         #region properties
 
-        internal DnsServer DnsServer
-        { get { return _dnsServer; } }
-
-        internal DhcpServer DhcpServer
-        { get { return _dhcpServer; } }
-
         public string ConfigFolder
         { get { return _configFolder; } }
 
@@ -2868,6 +3022,25 @@ namespace DnsServerCore
 
         public int WebServiceTlsPort
         { get { return _webServiceTlsPort; } }
+
+        internal bool IsWebServiceTlsEnabled
+        {
+            get
+            {
+                return _webServiceEnableTls && (_webServiceUseSelfSignedTlsCertificate || !string.IsNullOrEmpty(_webServiceTlsCertificatePath)) && (_webServiceSslServerAuthenticationOptions is not null);
+            }
+        }
+
+        internal X509Certificate2 WebServiceTlsCertificate
+        {
+            get
+            {
+                if (_webServiceSslServerAuthenticationOptions is null)
+                    return null;
+
+                return _webServiceSslServerAuthenticationOptions.ServerCertificateContext.TargetCertificate;
+            }
+        }
 
         #endregion
     }

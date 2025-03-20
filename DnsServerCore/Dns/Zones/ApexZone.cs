@@ -53,7 +53,8 @@ namespace DnsServerCore.Dns.Zones
         None = 0,
         ZoneNameServers = 1,
         SpecifiedNameServers = 2,
-        BothZoneAndSpecifiedNameServers = 3
+        BothZoneAndSpecifiedNameServers = 3,
+        SeparateNameServersForCatalogAndMemberZones = 4
     }
 
     public enum AuthZoneUpdate : byte
@@ -87,6 +88,7 @@ namespace DnsServerCore.Dns.Zones
 
         AuthZoneNotify _notify;
         IReadOnlyCollection<IPAddress> _notifyNameServers;
+        IReadOnlyCollection<IPAddress> _notifySecondaryCatalogNameServers;
 
         AuthZoneUpdate _update;
         IReadOnlyCollection<NetworkAccessControl> _updateNetworkACL;
@@ -141,6 +143,7 @@ namespace DnsServerCore.Dns.Zones
 
             _notify = zoneInfo.Notify;
             _notifyNameServers = zoneInfo.NotifyNameServers;
+            _notifySecondaryCatalogNameServers = zoneInfo.NotifySecondaryCatalogNameServers;
 
             _update = zoneInfo.Update;
             _updateNetworkACL = zoneInfo.UpdateNetworkACL;
@@ -210,7 +213,7 @@ namespace DnsServerCore.Dns.Zones
                 _notifyTimer.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
-        private async void NotifyTimerCallback(object state)
+        private void NotifyTimerCallback(object state)
         {
             ApexZone apexZone = this;
 
@@ -270,87 +273,117 @@ namespace DnsServerCore.Dns.Zones
                 await Task.WhenAll(tasks);
             }
 
-            async Task NotifySpecifiedNameServersAsync(bool onlyFailedNameServers)
+            Task NotifySpecifiedNameServersAsync(bool onlyFailedNameServers)
             {
                 IReadOnlyCollection<IPAddress> specifiedNameServers = apexZone._notifyNameServers;
                 if (specifiedNameServers is not null)
+                    return NotifyNameServersAsync(specifiedNameServers, onlyFailedNameServers);
+
+                return Task.CompletedTask;
+            }
+
+            Task NotifySecondaryCatalogNameServersAsync(bool onlyFailedNameServers)
+            {
+                IReadOnlyCollection<IPAddress> secondaryCatalogNameServers = apexZone._notifySecondaryCatalogNameServers;
+                if (secondaryCatalogNameServers is not null)
+                    return NotifyNameServersAsync(secondaryCatalogNameServers, onlyFailedNameServers);
+
+                return Task.CompletedTask;
+            }
+
+            async Task NotifyNameServersAsync(IReadOnlyCollection<IPAddress> nameServerIpAddresses, bool onlyFailedNameServers)
+            {
+                List<Task> tasks = new List<Task>();
+
+                foreach (IPAddress nameServerIpAddress in nameServerIpAddresses)
                 {
-                    List<Task> tasks = new List<Task>();
+                    string nameServerHost = nameServerIpAddress.ToString();
 
-                    foreach (IPAddress specifiedNameServer in specifiedNameServers)
+                    if (onlyFailedNameServers)
                     {
-                        string nameServerHost = specifiedNameServer.ToString();
-
-                        if (onlyFailedNameServers)
+                        lock (_notifyFailed)
                         {
-                            lock (_notifyFailed)
+                            if (!_notifyFailed.Contains(nameServerHost))
+                                continue;
+                        }
+                    }
+
+                    notifiedNameServers.Add(nameServerHost);
+
+                    tasks.Add(NotifyNameServerAsync(nameServerHost, [new NameServerAddress(nameServerIpAddress)]));
+                }
+
+                await Task.WhenAll(tasks);
+            }
+
+            //notify in DNS server's resolver thread pool
+            if (!_dnsServer.TryQueueResolverTask(async delegate (object state)
+                {
+                    try
+                    {
+                        switch (apexZone._notify)
+                        {
+                            case AuthZoneNotify.ZoneNameServers:
+                                await NotifyZoneNameServersAsync(!_notifyTimerTriggered);
+                                break;
+
+                            case AuthZoneNotify.SpecifiedNameServers:
+                                await NotifySpecifiedNameServersAsync(!_notifyTimerTriggered);
+                                break;
+
+                            case AuthZoneNotify.BothZoneAndSpecifiedNameServers:
+                                Task t1 = NotifyZoneNameServersAsync(!_notifyTimerTriggered);
+                                Task t2 = NotifySpecifiedNameServersAsync(!_notifyTimerTriggered);
+
+                                await Task.WhenAll(t1, t2);
+                                break;
+
+                            case AuthZoneNotify.SeparateNameServersForCatalogAndMemberZones:
+                                if (this is CatalogZone)
+                                    await NotifySecondaryCatalogNameServersAsync(!_notifyTimerTriggered);
+                                else
+                                    await NotifySpecifiedNameServersAsync(!_notifyTimerTriggered);
+
+                                break;
+                        }
+
+                        //remove non-existent name servers from notify failed list
+                        lock (_notifyFailed)
+                        {
+                            if (_notifyFailed.Count > 0)
                             {
-                                if (!_notifyFailed.Contains(nameServerHost))
-                                    continue;
+                                List<string> toRemove = new List<string>();
+
+                                foreach (string failedNameServer in _notifyFailed)
+                                {
+                                    if (!notifiedNameServers.Contains(failedNameServer))
+                                        toRemove.Add(failedNameServer);
+                                }
+
+                                foreach (string failedNameServer in toRemove)
+                                    _notifyFailed.Remove(failedNameServer);
+
+                                if (_notifyFailed.Count > 0)
+                                {
+                                    //set timer to notify failed name servers again
+                                    _notifyTimer.Change(Math.Max(GetZoneSoaRetry(), _dnsServer.AuthZoneManager.MinSoaRetry) * 1000, Timeout.Infinite);
+                                }
                             }
                         }
-
-                        notifiedNameServers.Add(nameServerHost);
-
-                        tasks.Add(NotifyNameServerAsync(nameServerHost, new NameServerAddress[] { new NameServerAddress(specifiedNameServer) }));
                     }
-
-                    await Task.WhenAll(tasks);
-                }
-            }
-
-            try
-            {
-                switch (apexZone._notify)
-                {
-                    case AuthZoneNotify.ZoneNameServers:
-                        await NotifyZoneNameServersAsync(!_notifyTimerTriggered);
-                        break;
-
-                    case AuthZoneNotify.SpecifiedNameServers:
-                        await NotifySpecifiedNameServersAsync(!_notifyTimerTriggered);
-                        break;
-
-                    case AuthZoneNotify.BothZoneAndSpecifiedNameServers:
-                        Task t1 = NotifyZoneNameServersAsync(!_notifyTimerTriggered);
-                        Task t2 = NotifySpecifiedNameServersAsync(!_notifyTimerTriggered);
-
-                        await Task.WhenAll(t1, t2);
-                        break;
-                }
-
-                //remove non-existent name servers from notify failed list
-                lock (_notifyFailed)
-                {
-                    if (_notifyFailed.Count > 0)
+                    catch (Exception ex)
                     {
-                        List<string> toRemove = new List<string>();
-
-                        foreach (string failedNameServer in _notifyFailed)
-                        {
-                            if (!notifiedNameServers.Contains(failedNameServer))
-                                toRemove.Add(failedNameServer);
-                        }
-
-                        foreach (string failedNameServer in toRemove)
-                            _notifyFailed.Remove(failedNameServer);
-
-                        if (_notifyFailed.Count > 0)
-                        {
-                            //set timer to notify failed name servers again
-                            int retryInterval = (int)((_entries[DnsResourceRecordType.SOA][0].RDATA as DnsSOARecordData).Retry * 1000);
-                            _notifyTimer.Change(retryInterval, Timeout.Infinite);
-                        }
+                        _dnsServer.LogManager?.Write(ex);
                     }
-                }
-            }
-            catch (Exception ex)
+                    finally
+                    {
+                        _notifyTimerTriggered = false;
+                    }
+                })
+            )
             {
-                _dnsServer.LogManager?.Write(ex);
-            }
-            finally
-            {
-                _notifyTimerTriggered = false;
+                //failed to queue notify task; try again in some time
+                _notifyTimer?.Change(NOTIFY_TIMER_INTERVAL, Timeout.Infinite);
             }
         }
 
@@ -953,9 +986,14 @@ namespace DnsServerCore.Dns.Zones
 
         #region public
 
-        public uint GetZoneSoaMinimum()
+        public uint GetZoneSoaSerial()
         {
-            return (_entries[DnsResourceRecordType.SOA][0].RDATA as DnsSOARecordData).Minimum;
+            return (_entries[DnsResourceRecordType.SOA][0].RDATA as DnsSOARecordData).Serial;
+        }
+
+        public uint GetZoneSoaRetry()
+        {
+            return (_entries[DnsResourceRecordType.SOA][0].RDATA as DnsSOARecordData).Retry;
         }
 
         public uint GetZoneSoaExpire()
@@ -963,9 +1001,9 @@ namespace DnsServerCore.Dns.Zones
             return (_entries[DnsResourceRecordType.SOA][0].RDATA as DnsSOARecordData).Expire;
         }
 
-        public uint GetZoneSoaSerial()
+        public uint GetZoneSoaMinimum()
         {
-            return (_entries[DnsResourceRecordType.SOA][0].RDATA as DnsSOARecordData).Serial;
+            return (_entries[DnsResourceRecordType.SOA][0].RDATA as DnsSOARecordData).Minimum;
         }
 
         public abstract string GetZoneTypeName();
@@ -1342,6 +1380,25 @@ namespace DnsServerCore.Dns.Zones
                     throw new ArgumentOutOfRangeException(nameof(NotifyNameServers), "Name server addresses cannot have more than 255 entries.");
                 else
                     _notifyNameServers = value;
+
+                lock (_notifyFailed)
+                {
+                    _notifyFailed.Clear();
+                }
+            }
+        }
+
+        public IReadOnlyCollection<IPAddress> NotifySecondaryCatalogNameServers
+        {
+            get { return _notifySecondaryCatalogNameServers; }
+            set
+            {
+                if ((value is null) || (value.Count == 0))
+                    _notifySecondaryCatalogNameServers = null;
+                else if (value.Count > byte.MaxValue)
+                    throw new ArgumentOutOfRangeException(nameof(NotifySecondaryCatalogNameServers), "Secondary Catalog name server addresses cannot have more than 255 entries.");
+                else
+                    _notifySecondaryCatalogNameServers = value;
 
                 lock (_notifyFailed)
                 {

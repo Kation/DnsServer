@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -153,10 +153,17 @@ namespace DropRequests
                 if (jsonQuestion.TryGetProperty("blockZone", out JsonElement jsonBlockZone))
                     _blockZone = jsonBlockZone.GetBoolean();
 
-                if (jsonQuestion.TryGetProperty("type", out JsonElement jsonType) && Enum.TryParse(jsonType.GetString(), true, out DnsResourceRecordType type))
+                if (jsonQuestion.TryGetProperty("type", out JsonElement jsonType))
+                {
+                    if (!Enum.TryParse(jsonType.GetString(), true, out DnsResourceRecordType type))
+                        throw new NotSupportedException("DNS record type is not supported: " + jsonType.GetString());
+
                     _type = type;
+                }
                 else
+                {
                     _type = DnsResourceRecordType.Unknown;
+                }
             }
 
             #endregion

@@ -8,7 +8,7 @@
 		<RootNamespace>DnsServerWindowsService</RootNamespace>
 		<AssemblyName>DnsService</AssemblyName>
 		<ApplicationIcon>logo2.ico</ApplicationIcon>
-		<Version>13.0</Version>
+		<Version>13.4.3</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<Authors>Shreyas Zare</Authors>
 		<Company>Technitium</Company>
@@ -20,18 +20,14 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<RuntimeHostConfigurationOption Include="System.Globalization.Invariant" Value="true" />
-	</ItemGroup>
-
-	<ItemGroup>
 		<Reference Include="TechnitiumLibrary.Net.Firewall">
 			<HintPath>..\..\TechnitiumLibrary\bin\TechnitiumLibrary.Net.Firewall.dll</HintPath>
 		</Reference>
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
+		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.1" />
 	</ItemGroup>
 
 	<ItemGroup>

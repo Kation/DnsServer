@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -25,13 +25,11 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 
-namespace DnsServerCore.Dns
+namespace DnsServerCore.Dns.Applications
 {
     class DnsApplicationAssemblyLoadContext : AssemblyLoadContext
     {
         #region variables
-
-        readonly static Type _dnsApplicationInterface = typeof(IDnsApplication);
 
         readonly IDnsServer _dnsServer;
 
@@ -39,7 +37,7 @@ namespace DnsServerCore.Dns
         readonly AssemblyDependencyResolver _dependencyResolver;
 
         readonly Dictionary<string, IntPtr> _loadedUnmanagedDlls = new Dictionary<string, IntPtr>();
-        readonly List<string> _unmanagedDllTempPaths = new List<string>();
+        readonly List<string> _dllTempPaths = new List<string>();
 
         #endregion
 
@@ -52,56 +50,29 @@ namespace DnsServerCore.Dns
 
             Unloading += delegate (AssemblyLoadContext obj)
             {
-                foreach (string unmanagedDllTempPath in _unmanagedDllTempPaths)
+                foreach (string dllTempPath in _dllTempPaths)
                 {
                     try
                     {
-                        File.Delete(unmanagedDllTempPath);
+                        File.Delete(dllTempPath);
                     }
                     catch
                     { }
                 }
             };
 
-            _appAssemblies = new List<Assembly>();
+            //load all app assemblies
+            Dictionary<string, Assembly> appAssemblies = new Dictionary<string, Assembly>();
 
-            IEnumerable<Assembly> loadedAssemblies = Default.Assemblies;
-
-            foreach (string dllFile in Directory.GetFiles(_dnsServer.ApplicationFolder, "*.dll", SearchOption.TopDirectoryOnly))
+            foreach (string depsFile in Directory.GetFiles(_dnsServer.ApplicationFolder, "*.deps.json", SearchOption.TopDirectoryOnly))
             {
-                string dllFileName = Path.GetFileNameWithoutExtension(dllFile);
-
-                bool isLoaded = false;
-
-                foreach (Assembly loadedAssembly in loadedAssemblies)
-                {
-                    if (!string.IsNullOrEmpty(loadedAssembly.Location))
-                    {
-                        if (Path.GetFileNameWithoutExtension(loadedAssembly.Location).Equals(dllFileName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            isLoaded = true;
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        AssemblyName assemblyName = loadedAssembly.GetName();
-
-                        if ((assemblyName.Name != null) && assemblyName.Name.Equals(dllFileName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            isLoaded = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (isLoaded)
-                    continue;
+                string dllFileName = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(depsFile));
+                string dllFile = Path.Combine(_dnsServer.ApplicationFolder, dllFileName + ".dll");
 
                 try
                 {
                     Assembly appAssembly;
-                    string pdbFile = Path.Combine(_dnsServer.ApplicationFolder, Path.GetFileNameWithoutExtension(dllFile) + ".pdb");
+                    string pdbFile = Path.Combine(_dnsServer.ApplicationFolder, dllFileName + ".pdb");
 
                     if (File.Exists(pdbFile))
                     {
@@ -121,36 +92,18 @@ namespace DnsServerCore.Dns
                         }
                     }
 
+                    appAssemblies.Add(dllFile, appAssembly);
+
                     if (_dependencyResolver is null)
-                    {
-                        bool isMainAssembly = false;
-
-                        foreach (Type classType in appAssembly.ExportedTypes)
-                        {
-                            foreach (Type interfaceType in classType.GetInterfaces())
-                            {
-                                if (interfaceType == _dnsApplicationInterface)
-                                {
-                                    isMainAssembly = true;
-                                    break;
-                                }
-                            }
-
-                            if (isMainAssembly)
-                                break;
-                        }
-
-                        if (isMainAssembly)
-                            _dependencyResolver = new AssemblyDependencyResolver(dllFile);
-                    }
-
-                    _appAssemblies.Add(appAssembly);
+                        _dependencyResolver = new AssemblyDependencyResolver(dllFile);
                 }
                 catch (Exception ex)
                 {
                     _dnsServer.WriteLog(ex);
                 }
             }
+
+            _appAssemblies = new List<Assembly>(appAssemblies.Values);
         }
 
         #endregion
@@ -159,6 +112,24 @@ namespace DnsServerCore.Dns
 
         protected override Assembly Load(AssemblyName assemblyName)
         {
+            if (_dependencyResolver is not null)
+            {
+                string resolvedPath = _dependencyResolver.ResolveAssemblyToPath(assemblyName);
+                if (!string.IsNullOrEmpty(resolvedPath) && File.Exists(resolvedPath))
+                {
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        return LoadFromAssemblyPath(GetTempDllFile(resolvedPath));
+                    else
+                        return LoadFromAssemblyPath(resolvedPath);
+                }
+            }
+
+            foreach (Assembly loadedAssembly in Default.Assemblies)
+            {
+                if (assemblyName.FullName == loadedAssembly.GetName().FullName)
+                    return loadedAssembly;
+            }
+
             return null;
         }
 
@@ -230,21 +201,11 @@ namespace DnsServerCore.Dns
             {
                 if (!_loadedUnmanagedDlls.TryGetValue(unmanagedDllPath.ToLowerInvariant(), out IntPtr value))
                 {
-                    //load the unmanaged DLL
-                    //copy unmanaged dll into temp file for loading to allow uninstalling/updating app at runtime.
-                    string tempPath = Path.GetTempFileName();
+                    //load the unmanaged DLL via temp file
+                    // - to allow uninstalling/updating app at runtime on Windows
+                    // - to avoid dns server crash issue when updating apps on Linux
+                    value = LoadUnmanagedDllFromPath(GetTempDllFile(unmanagedDllPath));
 
-                    using (FileStream srcFile = new FileStream(unmanagedDllPath, FileMode.Open, FileAccess.Read))
-                    {
-                        using (FileStream dstFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
-                        {
-                            srcFile.CopyTo(dstFile);
-                        }
-                    }
-
-                    _unmanagedDllTempPaths.Add(tempPath);
-
-                    value = LoadUnmanagedDllFromPath(tempPath);
                     _loadedUnmanagedDlls.Add(unmanagedDllPath.ToLowerInvariant(), value);
                 }
 
@@ -255,6 +216,23 @@ namespace DnsServerCore.Dns
         #endregion
 
         #region private
+
+        private string GetTempDllFile(string dllFile)
+        {
+            string tempPath = Path.GetTempFileName();
+
+            using (FileStream srcFile = new FileStream(dllFile, FileMode.Open, FileAccess.Read))
+            {
+                using (FileStream dstFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
+                {
+                    srcFile.CopyTo(dstFile);
+                }
+            }
+
+            _dllTempPaths.Add(tempPath);
+
+            return tempPath;
+        }
 
         private string FindUnmanagedDllPath(string unmanagedDllName, string runtime, string[] prefixes, string[] extensions)
         {

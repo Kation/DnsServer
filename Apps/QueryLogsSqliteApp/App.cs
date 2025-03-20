@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -34,13 +34,14 @@ using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
 namespace QueryLogsSqlite
 {
-    public sealed class App : IDnsApplication, IDnsQueryLogger
+    public sealed class App : IDnsApplication, IDnsQueryLogger, IDnsQueryLogs
     {
         #region variables
 
         IDnsServer _dnsServer;
 
         bool _enableLogging;
+        int _maxQueueSize;
         int _maxLogDays;
         int _maxLogRecords;
         bool _useInMemoryDb;
@@ -186,12 +187,13 @@ namespace QueryLogsSqlite
                         {
                             await using (SqliteCommand command = connection.CreateCommand())
                             {
-                                command.CommandText = "INSERT INTO dns_logs (timestamp, client_ip, protocol, response_type, rcode, qname, qtype, qclass, answer) VALUES (@timestamp, @client_ip, @protocol, @response_type, @rcode, @qname, @qtype, @qclass, @answer);";
+                                command.CommandText = "INSERT INTO dns_logs (timestamp, client_ip, protocol, response_type, response_rtt, rcode, qname, qtype, qclass, answer) VALUES (@timestamp, @client_ip, @protocol, @response_type, @response_rtt, @rcode, @qname, @qtype, @qclass, @answer);";
 
                                 SqliteParameter paramTimestamp = command.Parameters.Add("@timestamp", SqliteType.Text);
                                 SqliteParameter paramClientIp = command.Parameters.Add("@client_ip", SqliteType.Text);
                                 SqliteParameter paramProtocol = command.Parameters.Add("@protocol", SqliteType.Integer);
                                 SqliteParameter paramResponseType = command.Parameters.Add("@response_type", SqliteType.Integer);
+                                SqliteParameter paramResponseRtt = command.Parameters.Add("@response_rtt", SqliteType.Real);
                                 SqliteParameter paramRcode = command.Parameters.Add("@rcode", SqliteType.Integer);
                                 SqliteParameter paramQname = command.Parameters.Add("@qname", SqliteType.Text);
                                 SqliteParameter paramQtype = command.Parameters.Add("@qtype", SqliteType.Integer);
@@ -204,10 +206,19 @@ namespace QueryLogsSqlite
                                     paramClientIp.Value = log.RemoteEP.Address.ToString();
                                     paramProtocol.Value = (int)log.Protocol;
 
+                                    DnsServerResponseType responseType;
+
                                     if (log.Response.Tag == null)
-                                        paramResponseType.Value = (int)DnsServerResponseType.Recursive;
+                                        responseType = DnsServerResponseType.Recursive;
                                     else
-                                        paramResponseType.Value = (int)(DnsServerResponseType)log.Response.Tag;
+                                        responseType = (DnsServerResponseType)log.Response.Tag;
+
+                                    paramResponseType.Value = (int)responseType;
+
+                                    if ((responseType == DnsServerResponseType.Recursive) && (log.Response.Metadata is not null))
+                                        paramResponseRtt.Value = log.Response.Metadata.RoundTripTime;
+                                    else
+                                        paramResponseRtt.Value = DBNull.Value;
 
                                     paramRcode.Value = (int)log.Response.RCODE;
 
@@ -238,12 +249,12 @@ namespace QueryLogsSqlite
                                     {
                                         string answer = null;
 
-                                        for (int i = 0; i < log.Response.Answer.Count; i++)
+                                        foreach (DnsResourceRecord record in log.Response.Answer)
                                         {
                                             if (answer is null)
-                                                answer = log.Response.Answer[i].RDATA.ToString();
+                                                answer = record.Type.ToString() + " " + record.RDATA.ToString();
                                             else
-                                                answer += ", " + log.Response.Answer[i].RDATA.ToString();
+                                                answer += ", " + record.Type.ToString() + " " + record.RDATA.ToString();
                                         }
 
                                         paramAnswer.Value = answer;
@@ -279,6 +290,7 @@ namespace QueryLogsSqlite
             JsonElement jsonConfig = jsonDocument.RootElement;
 
             _enableLogging = jsonConfig.GetPropertyValue("enableLogging", true);
+            _maxQueueSize = jsonConfig.GetPropertyValue("maxQueueSize", 200000);
             _maxLogDays = jsonConfig.GetPropertyValue("maxLogDays", 0);
             _maxLogRecords = jsonConfig.GetPropertyValue("maxLogRecords", 0);
             _useInMemoryDb = jsonConfig.GetPropertyValue("useInMemoryDb", false);
@@ -331,6 +343,7 @@ CREATE TABLE IF NOT EXISTS dns_logs
     client_ip VARCHAR(39) NOT NULL,
     protocol TINYINT NOT NULL,
     response_type TINYINT NOT NULL,
+    response_rtt REAL,
     rcode TINYINT NOT NULL,
     qname VARCHAR(255),
     qtype SMALLINT,
@@ -340,6 +353,17 @@ CREATE TABLE IF NOT EXISTS dns_logs
 ";
                     await command.ExecuteNonQueryAsync();
                 }
+
+                try
+                {
+                    await using (SqliteCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "ALTER TABLE dns_logs ADD COLUMN response_rtt REAL;";
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+                catch
+                { }
 
                 await using (SqliteCommand command = connection.CreateCommand())
                 {
@@ -436,12 +460,22 @@ CREATE TABLE IF NOT EXISTS dns_logs
 
                 await File.WriteAllTextAsync(Path.Combine(dnsServer.ApplicationFolder, "dnsApp.config"), config);
             }
+
+            if (!jsonConfig.TryGetProperty("maxQueueSize", out _))
+            {
+                config = config.Replace("\"maxLogDays\"", "\"maxQueueSize\": 200000,\r\n  \"maxLogDays\"");
+
+                await File.WriteAllTextAsync(Path.Combine(dnsServer.ApplicationFolder, "dnsApp.config"), config);
+            }
         }
 
         public Task InsertLogAsync(DateTime timestamp, DnsDatagram request, IPEndPoint remoteEP, DnsTransportProtocol protocol, DnsDatagram response)
         {
             if (_enableLogging)
-                _queuedLogs.Enqueue(new LogEntry(timestamp, request, remoteEP, protocol, response));
+            {
+                if (_queuedLogs.Count < _maxQueueSize)
+                    _queuedLogs.Enqueue(new LogEntry(timestamp, request, remoteEP, protocol, response));
+            }
 
             return Task.CompletedTask;
         }
@@ -570,6 +604,7 @@ SELECT * FROM (
         client_ip,
         protocol,
         response_type,
+        response_rtt,
         rcode,
         qname,
         qtype,
@@ -617,21 +652,28 @@ ORDER BY row_num" + (descendingOrder ? " DESC" : "");
                     {
                         while (await reader.ReadAsync())
                         {
+                            double? responseRtt;
+
+                            if (reader.IsDBNull(5))
+                                responseRtt = null;
+                            else
+                                responseRtt = reader.GetDouble(5);
+
                             DnsQuestionRecord question;
 
-                            if (reader.IsDBNull(6))
+                            if (reader.IsDBNull(7))
                                 question = null;
                             else
-                                question = new DnsQuestionRecord(reader.GetString(6), (DnsResourceRecordType)reader.GetInt32(7), (DnsClass)reader.GetInt32(8), false);
+                                question = new DnsQuestionRecord(reader.GetString(7), (DnsResourceRecordType)reader.GetInt32(8), (DnsClass)reader.GetInt32(9), false);
 
                             string answer;
 
-                            if (reader.IsDBNull(9))
+                            if (reader.IsDBNull(10))
                                 answer = null;
                             else
-                                answer = reader.GetString(9);
+                                answer = reader.GetString(10);
 
-                            entries.Add(new DnsLogEntry(reader.GetInt64(0), reader.GetDateTime(1), IPAddress.Parse(reader.GetString(2)), (DnsTransportProtocol)reader.GetByte(3), (DnsServerResponseType)reader.GetByte(4), (DnsResponseCode)reader.GetByte(5), question, answer));
+                            entries.Add(new DnsLogEntry(reader.GetInt64(0), reader.GetDateTime(1), IPAddress.Parse(reader.GetString(2)), (DnsTransportProtocol)reader.GetByte(3), (DnsServerResponseType)reader.GetByte(4), responseRtt, (DnsResponseCode)reader.GetByte(6), question, answer));
                         }
                     }
                 }

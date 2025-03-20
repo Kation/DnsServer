@@ -264,6 +264,9 @@ namespace DnsServerCore.Dns.Zones
 
         public override IReadOnlyList<DnsResourceRecord> QueryRecords(DnsResourceRecordType type, bool dnssecOk)
         {
+            if (this is CatalogZone)
+                return base.QueryRecords(type, dnssecOk);
+
             if (type == DnsResourceRecordType.SOA)
                 return []; //forwarder zone is not authoritative and contains dummy SOA record
 
@@ -273,6 +276,23 @@ namespace DnsServerCore.Dns.Zones
         #endregion
 
         #region properties
+
+        public override bool Disabled
+        {
+            get { return base.Disabled; }
+            set
+            {
+                if (base.Disabled == value)
+                    return;
+
+                base.Disabled = value; //set value early to be able to use it for notify
+
+                if (value)
+                    DisableNotifyTimer();
+                else
+                    TriggerNotify();
+            }
+        }
 
         public override AuthZoneQueryAccess QueryAccess
         {
@@ -315,6 +335,12 @@ namespace DnsServerCore.Dns.Zones
                 {
                     case AuthZoneNotify.ZoneNameServers:
                     case AuthZoneNotify.BothZoneAndSpecifiedNameServers:
+                        throw new ArgumentException("The Notify option is invalid for " + GetZoneTypeName() + " zones: " + value.ToString(), nameof(Notify));
+
+                    case AuthZoneNotify.SeparateNameServersForCatalogAndMemberZones:
+                        if (this is CatalogZone)
+                            break;
+
                         throw new ArgumentException("The Notify option is invalid for " + GetZoneTypeName() + " zones: " + value.ToString(), nameof(Notify));
                 }
 

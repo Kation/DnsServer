@@ -20,6 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 using DnsServerCore.ApplicationCommon;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -37,9 +38,11 @@ namespace FilterAaaa
         IDnsServer _dnsServer;
 
         bool _enableFilterAaaa;
+        uint _defaultTtl;
         bool _bypassLocalZones;
         NetworkAddress[] _bypassNetworks;
         string[] _bypassDomains;
+        string[] _filterDomains;
 
         #endregion
 
@@ -54,7 +57,7 @@ namespace FilterAaaa
 
         #region public
 
-        public Task InitializeAsync(IDnsServer dnsServer, string config)
+        public async Task InitializeAsync(IDnsServer dnsServer, string config)
         {
             _dnsServer = dnsServer;
 
@@ -62,6 +65,21 @@ namespace FilterAaaa
             JsonElement jsonConfig = jsonDocument.RootElement;
 
             _enableFilterAaaa = jsonConfig.GetPropertyValue("enableFilterAaaa", false);
+
+            if (jsonConfig.TryGetProperty("defaultTtl", out JsonElement jsonValue))
+            {
+                if (!jsonValue.TryGetUInt32(out _defaultTtl))
+                    _defaultTtl = 30u;
+            }
+            else
+            {
+                _defaultTtl = 30u;
+
+                //update config for new option
+                config = config.Replace("\"bypassLocalZones\"", "\"defaultTtl\": 30,\r\n  \"bypassLocalZones\"");
+                await File.WriteAllTextAsync(Path.Combine(dnsServer.ApplicationFolder, "dnsApp.config"), config);
+            }
+
             _bypassLocalZones = jsonConfig.GetPropertyValue("bypassLocalZones", false);
 
             if (jsonConfig.TryReadArray("bypassNetworks", NetworkAddress.Parse, out NetworkAddress[] bypassNetworks))
@@ -74,7 +92,19 @@ namespace FilterAaaa
             else
                 _bypassDomains = [];
 
-            return Task.CompletedTask;
+            if (jsonConfig.TryReadArray("filterDomains", out string[] filterDomains))
+            {
+                _filterDomains = filterDomains;
+            }
+            else
+            {
+                _filterDomains = [];
+
+                //update config for new feature
+                config = config.TrimEnd('\r', '\n', ' ', '}');
+                config += ",\r\n  \"filterDomains\": [\r\n  ]\r\n}";
+                await File.WriteAllTextAsync(Path.Combine(dnsServer.ApplicationFolder, "dnsApp.config"), config);
+            }
         }
 
         public async Task<DnsDatagram> PostProcessAsync(DnsDatagram request, IPEndPoint remoteEP, DnsTransportProtocol protocol, DnsDatagram response)
@@ -83,9 +113,6 @@ namespace FilterAaaa
                 return response;
 
             if (_bypassLocalZones && response.AuthoritativeAnswer)
-                return response;
-
-            if (request.DnssecOk)
                 return response;
 
             if (response.RCODE != DnsResponseCode.NoError)
@@ -97,12 +124,31 @@ namespace FilterAaaa
 
             bool hasAAAA = false;
 
-            foreach (DnsResourceRecord record in response.Answer)
+            if (request.DnssecOk)
             {
-                if (record.Type == DnsResourceRecordType.AAAA)
+                foreach (DnsResourceRecord record in response.Answer)
                 {
-                    hasAAAA = true;
-                    break;
+                    switch (record.Type)
+                    {
+                        case DnsResourceRecordType.AAAA:
+                            hasAAAA = true;
+                            break;
+
+                        case DnsResourceRecordType.RRSIG:
+                            //response is signed and the client is DNSSEC aware; must not be modified
+                            return response;
+                    }
+                }
+            }
+            else
+            {
+                foreach (DnsResourceRecord record in response.Answer)
+                {
+                    if (record.Type == DnsResourceRecordType.AAAA)
+                    {
+                        hasAAAA = true;
+                        break;
+                    }
                 }
             }
 
@@ -125,6 +171,20 @@ namespace FilterAaaa
                     return response;
             }
 
+            bool filterDomain = _filterDomains.Length == 0;
+
+            foreach (string blockedDomain in _filterDomains)
+            {
+                if (qname.Equals(blockedDomain, StringComparison.OrdinalIgnoreCase) || qname.EndsWith("." + blockedDomain, StringComparison.OrdinalIgnoreCase))
+                {
+                    filterDomain = true;
+                    break;
+                }
+            }
+
+            if (!filterDomain)
+                return response;
+
             DnsDatagram aResponse = await _dnsServer.DirectQueryAsync(new DnsQuestionRecord(qname, DnsResourceRecordType.A, DnsClass.IN), 2000);
 
             if (aResponse.RCODE != DnsResponseCode.NoError)
@@ -146,7 +206,7 @@ namespace FilterAaaa
                         }
                     }
 
-                    DnsResourceRecord[] authority = [new DnsResourceRecord(qname, DnsResourceRecordType.SOA, DnsClass.IN, 30, new DnsSOARecordData(_dnsServer.ServerDomain, _dnsServer.ResponsiblePerson.Address, 1, 3600, 900, 86400, 30))];
+                    DnsResourceRecord[] authority = [new DnsResourceRecord(qname, DnsResourceRecordType.SOA, DnsClass.IN, _defaultTtl, new DnsSOARecordData(_dnsServer.ServerDomain, _dnsServer.ResponsiblePerson.Address, 1, 3600, 900, 86400, _defaultTtl))];
 
                     return new DnsDatagram(response.Identifier, true, response.OPCODE, false, false, response.RecursionDesired, response.RecursionAvailable, false, false, DnsResponseCode.NoError, response.Question, answer, authority);
                 }
