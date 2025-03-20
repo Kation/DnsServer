@@ -25,16 +25,23 @@ $(function () {
     $("input[type=radio][name=rdAddZoneType]").change(function () {
         $("#divAddZoneUseSoaSerialDateScheme").hide();
         $("#divAddZonePrimaryNameServerAddresses").hide();
+        $("#lblAddZonePrimaryNameServerAddresses").text("Primary Name Server Addresses (Optional)");
+        $("#divAddZonePrimaryNameServerAddressesInfo").text("Enter the primary name server addresses to sync the zone from. When unspecified, the SOA Primary Name Server will be resolved and used.");
         $("#divAddZoneZoneTransferProtocol").hide();
         $("#divAddZoneTsigKeyName").hide();
+        $("#divAddZoneValidateZone").hide();
         $("#divAddZoneForwarderProtocol").hide();
         $("#divAddZoneForwarder").hide();
         $("#divAddZoneForwarderDnssecValidation").hide();
         $("#divAddZoneForwarderProxy").hide();
+        $("#divAddZoneCatalogZone").hide();
 
         var zoneType = $('input[name=rdAddZoneType]:checked').val();
         switch (zoneType) {
             case "Primary":
+                if ($("#optAddZoneCatalogZoneName").attr("hasItems") == "true")
+                    $("#divAddZoneCatalogZone").show();
+
                 $("#divAddZoneUseSoaSerialDateScheme").show();
                 break;
 
@@ -42,19 +49,37 @@ $(function () {
                 $("#divAddZonePrimaryNameServerAddresses").show();
                 $("#divAddZoneZoneTransferProtocol").show();
                 $("#divAddZoneTsigKeyName").show();
+                $("#divAddZoneValidateZone").show();
 
                 loadTsigKeyNames($("#optAddZoneTsigKeyName"), null, $("#divAddZoneAlert"));
                 break;
 
             case "Stub":
+                if ($("#optAddZoneCatalogZoneName").attr("hasItems") == "true")
+                    $("#divAddZoneCatalogZone").show();
+
                 $("#divAddZonePrimaryNameServerAddresses").show();
                 break;
 
             case "Forwarder":
+                if ($("#optAddZoneCatalogZoneName").attr("hasItems") == "true")
+                    $("#divAddZoneCatalogZone").show();
+
                 $("#divAddZoneForwarderProtocol").show();
                 $("#divAddZoneForwarder").show();
                 $("#divAddZoneForwarderDnssecValidation").show();
                 $("#divAddZoneForwarderProxy").show();
+                break;
+
+            case "SecondaryForwarder":
+            case "SecondaryCatalog":
+                $("#lblAddZonePrimaryNameServerAddresses").text("Primary Name Server Addresses");
+                $("#divAddZonePrimaryNameServerAddressesInfo").text("Enter the primary name server addresses to sync the zone from.");
+                $("#divAddZonePrimaryNameServerAddresses").show();
+                $("#divAddZoneZoneTransferProtocol").show();
+                $("#divAddZoneTsigKeyName").show();
+
+                loadTsigKeyNames($("#optAddZoneTsigKeyName"), null, $("#divAddZoneAlert"));
                 break;
         }
     });
@@ -88,16 +113,105 @@ $(function () {
         $("#txtAddZoneForwarderProxyPassword").prop("disabled", disabled);
     });
 
-    $("input[type=radio][name=rdZoneTransfer]").change(function () {
-        var zoneTransfer = $('input[name=rdZoneTransfer]:checked').val();
-        switch (zoneTransfer) {
-            case "AllowOnlySpecifiedNameServers":
-            case "AllowBothZoneAndSpecifiedNameServers":
-                $("#txtZoneTransferNameServers").prop("disabled", false);
+    $("#optZoneOptionsCatalogZoneName").change(function () {
+        var catalog = $("#optZoneOptionsCatalogZoneName").val();
+        if (catalog === "") {
+            $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked", false);
+            $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("checked", false);
+            $("#chkZoneOptionsCatalogOverrideNotify").prop("checked", false);
+
+            $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", true);
+            $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("disabled", true);
+            $("#chkZoneOptionsCatalogOverrideNotify").prop("disabled", true);
+
+            switch ($("#lblZoneOptionsZoneName").attr("data-zone-type")) {
+                case "Primary":
+                case "Forwarder":
+                    $("#tabListZoneOptionsQueryAccess").show();
+                    $("#tabListZoneOptionsZoneTranfer").show();
+                    $("#tabListZoneOptionsNotify").show();
+                    break;
+
+                case "Stub":
+                    $("#tabListZoneOptionsQueryAccess").show();
+                    break;
+            }
+        }
+        else {
+            $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked", false);
+            $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("checked", false);
+            $("#chkZoneOptionsCatalogOverrideNotify").prop("checked", false);
+
+            switch ($("#lblZoneOptionsZoneName").attr("data-zone-type")) {
+                case "Primary":
+                case "Forwarder":
+                    $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", false);
+                    $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("disabled", false);
+                    $("#chkZoneOptionsCatalogOverrideNotify").prop("disabled", false);
+                    break;
+
+                case "Stub":
+                    $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", false);
+                    break;
+            }
+
+            $("#tabListZoneOptionsQueryAccess").hide();
+            $("#tabListZoneOptionsZoneTranfer").hide();
+            $("#tabListZoneOptionsNotify").hide();
+        }
+    });
+
+    $("#chkZoneOptionsCatalogOverrideQueryAccess").click(function () {
+        var checked = $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked");
+
+        if (checked)
+            $("#tabListZoneOptionsQueryAccess").show();
+        else
+            $("#tabListZoneOptionsQueryAccess").hide();
+    });
+
+    $("#chkZoneOptionsCatalogOverrideZoneTransfer").click(function () {
+        var checked = $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("checked");
+
+        if (checked)
+            $("#tabListZoneOptionsZoneTranfer").show();
+        else
+            $("#tabListZoneOptionsZoneTranfer").hide();
+    });
+
+    $("#chkZoneOptionsCatalogOverrideNotify").click(function () {
+        var checked = $("#chkZoneOptionsCatalogOverrideNotify").prop("checked");
+
+        if (checked)
+            $("#tabListZoneOptionsNotify").show();
+        else
+            $("#tabListZoneOptionsNotify").hide();
+    });
+
+    $("input[type=radio][name=rdQueryAccess]").change(function () {
+        var queryAccess = $("input[name=rdQueryAccess]:checked").val();
+        switch (queryAccess) {
+            case "UseSpecifiedNetworkACL":
+            case "AllowZoneNameServersAndUseSpecifiedNetworkACL":
+                $("#txtQueryAccessNetworkACL").prop("disabled", false);
                 break;
 
             default:
-                $("#txtZoneTransferNameServers").prop("disabled", true);
+                $("#txtQueryAccessNetworkACL").prop("disabled", true);
+                break;
+        }
+    });
+
+    $("input[type=radio][name=rdZoneTransfer]").change(function () {
+        var zoneTransfer = $('input[name=rdZoneTransfer]:checked').val();
+        switch (zoneTransfer) {
+            case "UseSpecifiedNetworkACL":
+            case "AllowZoneNameServersAndUseSpecifiedNetworkACL":
+                $("#txtZoneTransferNetworkACL").prop("disabled", false);
+                break;
+
+            default:
+                $("#txtZoneTransferNetworkACL").prop("disabled", true);
                 break;
         }
     });
@@ -119,13 +233,13 @@ $(function () {
     $("input[type=radio][name=rdDynamicUpdate]").change(function () {
         var dynamicUpdate = $('input[name=rdDynamicUpdate]:checked').val();
         switch (dynamicUpdate) {
-            case "AllowOnlySpecifiedIpAddresses":
-            case "AllowBothZoneNameServersAndSpecifiedIpAddresses":
-                $("#txtDynamicUpdateIpAddresses").prop("disabled", false);
+            case "UseSpecifiedNetworkACL":
+            case "AllowZoneNameServersAndUseSpecifiedNetworkACL":
+                $("#txtDynamicUpdateNetworkACL").prop("disabled", false);
                 break;
 
             default:
-                $("#txtDynamicUpdateIpAddresses").prop("disabled", true);
+                $("#txtDynamicUpdateNetworkACL").prop("disabled", true);
                 break;
         }
     });
@@ -204,6 +318,15 @@ $(function () {
     $("#chkAddEditRecordDataPtr").click(function () {
         var addPtrRecord = $("#chkAddEditRecordDataPtr").prop('checked');
         $("#chkAddEditRecordDataCreatePtrZone").prop('disabled', !addPtrRecord);
+    });
+
+    $("#chkAddEditRecordDataTxtSplitText").click(function () {
+        var splitText = $("#chkAddEditRecordDataTxtSplitText").prop("checked");
+        if (!splitText) {
+            var text = $("#txtAddEditRecordDataTxt").val();
+            text = text.replace(/\n/g, "");
+            $("#txtAddEditRecordDataTxt").val(text);
+        }
     });
 
     $("input[type=radio][name=rdAddEditRecordDataForwarderProtocol]").change(updateAddEditFormForwarderPlaceholder);
@@ -345,10 +468,24 @@ function refreshZones(checkDisplay, pageNumber) {
                     name = ".";
 
                 var type;
-                if (zones[i].internal)
+                if (zones[i].internal) {
                     type = "<span class=\"label label-default\">Internal</span>";
-                else
-                    type = "<span class=\"label label-primary\">" + zones[i].type + "</span>";
+                }
+                else {
+                    switch (zones[i].type) {
+                        case "SecondaryForwarder":
+                            type = "<span class=\"label label-primary\">Secondary Forwarder</span>";
+                            break;
+
+                        case "SecondaryCatalog":
+                            type = "<span class=\"label label-primary\">Secondary Catalog</span>";
+                            break;
+
+                        default:
+                            type = "<span class=\"label label-primary\">" + zones[i].type + "</span>";
+                            break;
+                    }
+                }
 
                 var soaSerial = zones[i].soaSerial;
                 if (soaSerial == null)
@@ -369,6 +506,8 @@ function refreshZones(checkDisplay, pageNumber) {
                     status = "<span id=\"tdZoneStatus" + id + "\" class=\"label label-warning\">Disabled</span>";
                 else if (zones[i].isExpired)
                     status = "<span id=\"tdZoneStatus" + id + "\" class=\"label label-danger\">Expired</span>";
+                else if (zones[i].validationFailed)
+                    status = "<span id=\"tdZoneStatus" + id + "\" class=\"label label-danger\">Validation Failed</span>";
                 else if (zones[i].syncFailed)
                     status = "<span id=\"tdZoneStatus" + id + "\" class=\"label label-warning\">Sync Failed</span>";
                 else if (zones[i].notifyFailed)
@@ -394,6 +533,8 @@ function refreshZones(checkDisplay, pageNumber) {
 
                 switch (zones[i].type) {
                     case "Secondary":
+                    case "SecondaryForwarder":
+                    case "SecondaryCatalog":
                     case "Stub":
                         showResyncMenu = true;
                         break;
@@ -411,7 +552,11 @@ function refreshZones(checkDisplay, pageNumber) {
                         break;
 
                     case "Secondary":
+                    case "SecondaryForwarder":
+                    case "SecondaryCatalog":
+                    case "Stub":
                     case "Forwarder":
+                    case "Catalog":
                         hideOptionsMenu = false;
                         break;
 
@@ -420,12 +565,30 @@ function refreshZones(checkDisplay, pageNumber) {
                         break;
                 }
 
+                var nameTags;
+
+                if (zones[i].catalog != null) {
+                    nameTags = "<div><span id=\"tagZoneCatalogName" + id + "\" class=\"label label-default\">" + htmlEncode(zones[i].catalog) + "</span></div>";
+                }
+                else {
+                    switch (zones[i].type) {
+                        case "Catalog":
+                        case "SecondaryCatalog":
+                            nameTags = "<div><span id=\"tagZoneCatalogName" + id + "\" class=\"label label-info\">" + htmlEncode(name) + "</span></div>";
+                            break;
+
+                        default:
+                            nameTags = "<div><span id=\"tagZoneCatalogName" + id + "\" class=\"label label-default\" style=\"display: none;\"></span></div>";
+                            break;
+                    }
+                }
+
                 tableHtmlRows += "<tr id=\"trZone" + id + "\"><td>" + (firstRowNumber + i) + "</td>";
 
                 if (zones[i].nameIdn == null)
-                    tableHtmlRows += "<td><a href=\"#\" onclick=\"showEditZone('" + name + "'); return false;\">" + htmlEncode(name === "." ? "<root>" : name) + "</a></td>";
+                    tableHtmlRows += "<td style=\"word-break: break-word; max-width: 390px;\"><a href=\"#\" onclick=\"showEditZone('" + name + "'); return false;\">" + htmlEncode(name === "." ? "<root>" : name) + "</a>" + nameTags + "</td>";
                 else
-                    tableHtmlRows += "<td><a href=\"#\" onclick=\"showEditZone('" + name + "'); return false;\">" + htmlEncode(zones[i].nameIdn + " (" + name + ")") + "</a></td>";
+                    tableHtmlRows += "<td style=\"word-break: break-word; max-width: 390px;\"><a href=\"#\" onclick=\"showEditZone('" + name + "'); return false;\">" + htmlEncode(zones[i].nameIdn + " (" + name + ")") + "</a>" + nameTags + "</td>";
 
                 tableHtmlRows += "<td>" + type + "</td>";
                 tableHtmlRows += "<td>" + dnssecStatus + "</td>";
@@ -446,19 +609,19 @@ function refreshZones(checkDisplay, pageNumber) {
                     tableHtmlRows += "<li><a href=\"#\" data-id=\"" + id + "\" data-zone=\"" + htmlEncode(name) + "\" data-zone-type=\"" + zones[i].type + "\" onclick=\"resyncZoneMenu(this); return false;\">Resync</a></li>";
                 }
 
-                if (!hideOptionsMenu) {
-                    tableHtmlRows += "<li><a href=\"#\" onclick=\"showZoneOptionsModal('" + name + "'); return false;\">Zone Options</a></li>";
+                switch (zones[i].type) {
+                    case "Primary":
+                    case "Forwarder":
+                        tableHtmlRows += "<li><a href=\"#\" onclick=\"showCloneZoneModal('" + name + "'); return false;\">Clone Zone</a></li>";
+                        break;
                 }
 
                 if (!zones[i].internal) {
                     tableHtmlRows += "<li><a href=\"#\" onclick=\"showZonePermissionsModal('" + name + "'); return false;\">Permissions</a></li>";
                 }
 
-                switch (zones[i].type) {
-                    case "Primary":
-                    case "Forwarder":
-                        tableHtmlRows += "<li><a href=\"#\" onclick=\"showCloneZoneModal('" + name + "'); return false;\">Clone Zone</a></li>";
-                        break;
+                if (!hideOptionsMenu) {
+                    tableHtmlRows += "<li><a href=\"#\" onclick=\"$('#btnSaveZoneOptions').attr('data-zones-row-id', " + id + "); showZoneOptionsModal('" + name + "'); return false;\">Zone Options</a></li>";
                 }
 
                 if (!zones[i].internal) {
@@ -579,8 +742,8 @@ function enableZone(objBtn) {
 
             $("#btnEnableZoneEditZone").hide();
             $("#btnDisableZoneEditZone").show();
-            $("#titleStatusEditZone").attr("class", "label label-success");
-            $("#titleStatusEditZone").html("Enabled");
+            $("#titleEditZoneStatus").attr("class", "label label-success");
+            $("#titleEditZoneStatus").html("Enabled");
 
             showAlert("success", "Zone Enabled!", "Zone '" + zone + "' was enabled successfully.");
         },
@@ -647,8 +810,8 @@ function disableZone(objBtn) {
 
             $("#btnEnableZoneEditZone").show();
             $("#btnDisableZoneEditZone").hide();
-            $("#titleStatusEditZone").attr("class", "label label-warning");
-            $("#titleStatusEditZone").html("Disabled");
+            $("#titleEditZoneStatus").attr("class", "label label-warning");
+            $("#titleEditZoneStatus").html("Disabled");
 
             showAlert("success", "Zone Disabled!", "Zone '" + zone + "' was disabled successfully.");
         },
@@ -843,6 +1006,7 @@ function showConvertZoneModal(zone, type) {
             break;
 
         case "Secondary":
+        case "SecondaryForwarder":
             $("#rdConvertZoneToTypePrimary").attr("disabled", false);
             $("#rdConvertZoneToTypeForwarder").attr("disabled", false);
 
@@ -956,213 +1120,785 @@ function showZoneOptionsModal(zone) {
     $("#modalZoneOptions").modal("show");
 
     HTTPRequest({
-        url: "/api/zones/options/get?token=" + sessionData.token + "&zone=" + zone + "&includeAvailableTsigKeyNames=true",
+        url: "/api/zones/options/get?token=" + sessionData.token + "&zone=" + zone + "&includeAvailableCatalogZoneNames=true&includeAvailableTsigKeyNames=true",
         success: function (responseJSON) {
-            $("#txtZoneTransferNameServers").prop("disabled", true);
+            $("#optZoneOptionsCatalogZoneName").html("");
+
+            $("#lblZoneOptionsPrimaryNameServerAddresses").text("Primary Name Server Addresses (Optional)");
+            $("#divZoneOptionsPrimaryNameServerAddressesInfo").text("Enter the primary name server addresses to sync the zone from. When unspecified, the SOA Primary Name Server will be resolved and used.");
+            $("#txtZoneOptionsPrimaryNameServerAddresses").val("");
+            $("#rdPrimaryZoneTransferProtocolTcp").prop("checked", true);
+            $("#optZoneOptionsPrimaryZoneTransferTsigKeyName").val("");
+            $("#chkZoneOptionsValidateZone").prop("checked", false);
+
+            $("#tabListZoneOptionsGeneral").hide();
+
+            $("#divZoneOptionsCatalogNotifyFailedNameServers").hide();
+
+            $("#rdDynamicUpdateDeny").prop("checked", true);
+            $("#txtDynamicUpdateNetworkACL").val("");
+            $("#tbodyDynamicUpdateSecurityPolicy").html("");
+
+            $("#txtQueryAccessNetworkACL").prop("disabled", true);
+            $("#txtZoneTransferNetworkACL").prop("disabled", true);
             $("#txtZoneNotifyNameServers").prop("disabled", true);
-            $("#txtDynamicUpdateIpAddresses").prop("disabled", true);
+            $("#txtDynamicUpdateNetworkACL").prop("disabled", true);
 
-            if ((responseJSON.response.type == "Primary") || (responseJSON.response.type == "Secondary")) {
-                //zone transfer
-                switch (responseJSON.response.zoneTransfer) {
+            $("#lblZoneOptionsZoneName").attr("data-zone-type", responseJSON.response.type);
+
+            //catalog zone
+            switch (responseJSON.response.type) {
+                case "Primary":
+                case "Forwarder":
+                    if (responseJSON.response.availableCatalogZoneNames.length > 0) {
+                        loadCatalogZoneNamesFrom(responseJSON.response.availableCatalogZoneNames, $("#optZoneOptionsCatalogZoneName"), responseJSON.response.catalog);
+                        $("#optZoneOptionsCatalogZoneName").prop("disabled", false);
+
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked", (responseJSON.response.catalog != null) && responseJSON.response.overrideCatalogQueryAccess);
+                        $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("checked", (responseJSON.response.catalog != null) && responseJSON.response.overrideCatalogZoneTransfer);
+                        $("#chkZoneOptionsCatalogOverrideNotify").prop("checked", (responseJSON.response.catalog != null) && responseJSON.response.overrideCatalogNotify);
+
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", (responseJSON.response.catalog == null));
+                        $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("disabled", (responseJSON.response.catalog == null));
+                        $("#chkZoneOptionsCatalogOverrideNotify").prop("disabled", (responseJSON.response.catalog == null));
+
+                        $("#divZoneOptionsCatalogOverrideZoneTransfer").show();
+                        $("#divZoneOptionsCatalogOverrideNotify").show();
+
+                        $("#divZoneOptionsCatalogOverrideOptions").show();
+                        $("#divZoneOptionsGeneralCatalogZone").show();
+                        $("#tabListZoneOptionsGeneral").show();
+                    } else {
+                        $("#divZoneOptionsGeneralCatalogZone").hide();
+                    }
+                    break;
+
+                case "Stub":
+                    if ((responseJSON.response.catalog != null) && responseJSON.response.isSecondaryCatalogMember) {
+                        $("#optZoneOptionsCatalogZoneName").html("<option selected>" + htmlEncode(responseJSON.response.catalog) + "</option>");
+                        $("#optZoneOptionsCatalogZoneName").prop("disabled", true);
+
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked", responseJSON.response.overrideCatalogQueryAccess);
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", true);
+
+                        $("#divZoneOptionsCatalogOverrideZoneTransfer").hide();
+                        $("#divZoneOptionsCatalogOverrideNotify").hide();
+
+                        $("#divZoneOptionsCatalogOverrideOptions").show();
+                        $("#divZoneOptionsGeneralCatalogZone").show();
+                        $("#tabListZoneOptionsGeneral").show();
+                    } else {
+                        if (responseJSON.response.availableCatalogZoneNames.length > 0) {
+                            loadCatalogZoneNamesFrom(responseJSON.response.availableCatalogZoneNames, $("#optZoneOptionsCatalogZoneName"), responseJSON.response.catalog);
+                            $("#optZoneOptionsCatalogZoneName").prop("disabled", false);
+
+                            $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked", (responseJSON.response.catalog != null) && responseJSON.response.overrideCatalogQueryAccess);
+                            $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", (responseJSON.response.catalog == null));
+
+                            $("#divZoneOptionsCatalogOverrideZoneTransfer").hide();
+                            $("#divZoneOptionsCatalogOverrideNotify").hide();
+
+                            $("#divZoneOptionsCatalogOverrideOptions").show();
+                            $("#divZoneOptionsGeneralCatalogZone").show();
+                            $("#tabListZoneOptionsGeneral").show();
+                        } else {
+                            $("#divZoneOptionsGeneralCatalogZone").hide();
+                        }
+                    }
+
+                    break;
+
+                case "Secondary":
+                    if (responseJSON.response.catalog != null) {
+                        $("#optZoneOptionsCatalogZoneName").html("<option selected>" + htmlEncode(responseJSON.response.catalog) + "</option>");
+                        $("#optZoneOptionsCatalogZoneName").prop("disabled", true);
+
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked", responseJSON.response.overrideCatalogQueryAccess);
+                        $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("checked", responseJSON.response.overrideCatalogZoneTransfer);
+
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", true);
+                        $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("disabled", true);
+
+                        $("#divZoneOptionsCatalogOverrideZoneTransfer").show();
+                        $("#divZoneOptionsCatalogOverrideNotify").hide();
+
+                        $("#divZoneOptionsCatalogOverrideOptions").show();
+                        $("#divZoneOptionsGeneralCatalogZone").show();
+                        $("#tabListZoneOptionsGeneral").show();
+                    } else {
+                        $("#divZoneOptionsGeneralCatalogZone").hide();
+                    }
+                    break;
+
+                case "SecondaryForwarder":
+                    if (responseJSON.response.catalog != null) {
+                        $("#optZoneOptionsCatalogZoneName").html("<option selected>" + htmlEncode(responseJSON.response.catalog) + "</option>");
+                        $("#optZoneOptionsCatalogZoneName").prop("disabled", true);
+
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked", responseJSON.response.overrideCatalogQueryAccess);
+                        $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("disabled", true);
+
+                        $("#divZoneOptionsCatalogOverrideZoneTransfer").hide();
+                        $("#divZoneOptionsCatalogOverrideNotify").hide();
+
+                        $("#divZoneOptionsCatalogOverrideOptions").show();
+                        $("#divZoneOptionsGeneralCatalogZone").show();
+                        $("#tabListZoneOptionsGeneral").show();
+                    } else {
+                        $("#divZoneOptionsGeneralCatalogZone").hide();
+                    }
+                    break;
+
+                default:
+                    $("#divZoneOptionsGeneralCatalogZone").hide();
+                    break;
+            }
+
+            //primary server
+            switch (responseJSON.response.type) {
+                case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
+                    {
+                        var value = "";
+
+                        for (var i = 0; i < responseJSON.response.primaryNameServerAddresses.length; i++)
+                            value += responseJSON.response.primaryNameServerAddresses[i] + "\r\n";
+
+                        $("#txtZoneOptionsPrimaryNameServerAddresses").val(value);
+                    }
+
+                    switch (responseJSON.response.primaryZoneTransferProtocol) {
+                        case "Tls":
+                            $("#rdPrimaryZoneTransferProtocolTls").prop("checked", true);
+                            break;
+
+                        case "Quic":
+                            $("#rdPrimaryZoneTransferProtocolQuic").prop("checked", true);
+                            break;
+
+                        case "Tcp":
+                        default:
+                            $("#rdPrimaryZoneTransferProtocolTcp").prop("checked", true);
+                            break;
+                    }
+
+                    loadTsigKeyNamesFrom(responseJSON.response.availableTsigKeyNames, $("#optZoneOptionsPrimaryZoneTransferTsigKeyName"), responseJSON.response.primaryZoneTransferTsigKeyName);
+
+                    if (responseJSON.response.type == "Secondary") {
+                        $("#chkZoneOptionsValidateZone").prop("checked", responseJSON.response.validateZone);
+                        $("#divZoneOptionsPrimaryServerValidateZone").show();
+                    }
+                    else {
+                        $("#divZoneOptionsPrimaryServerValidateZone").hide();
+                    }
+
+                    switch (responseJSON.response.type) {
+                        case "SecondaryForwarder":
+                        case "SecondaryCatalog":
+                            $("#lblZoneOptionsPrimaryNameServerAddresses").text("Primary Name Server Addresses");
+                            $("#divZoneOptionsPrimaryNameServerAddressesInfo").text("Enter the primary name server addresses to sync the zone from.");
+                            break;
+                    }
+
+                    $("#divZoneOptionsPrimaryServerZoneTransferProtocol").show();
+                    $("#divZoneOptionsPrimaryServerZoneTransferTsigKeyName").show();
+
+                    $("#txtZoneOptionsPrimaryNameServerAddresses").prop("disabled", responseJSON.response.catalog != null);
+                    $("#rdPrimaryZoneTransferProtocolTcp").prop("disabled", responseJSON.response.catalog != null);
+                    $("#rdPrimaryZoneTransferProtocolTls").prop("disabled", responseJSON.response.catalog != null);
+                    $("#rdPrimaryZoneTransferProtocolQuic").prop("disabled", responseJSON.response.catalog != null);
+                    $("#optZoneOptionsPrimaryZoneTransferTsigKeyName").prop("disabled", responseJSON.response.catalog != null);
+
+                    switch (responseJSON.response.type) {
+                        case "Secondary":
+                        case "SecondaryForwarder":
+                            if (responseJSON.response.catalog == null) {
+                                $("#divZoneOptionsGeneralPrimaryServer").show();
+                                $("#tabListZoneOptionsGeneral").show();
+                            } else if (responseJSON.response.overrideCatalogPrimaryNameServers) {
+                                $("#divZoneOptionsPrimaryServerValidateZone").hide();
+                                $("#divZoneOptionsGeneralPrimaryServer").show();
+                                $("#tabListZoneOptionsGeneral").show();
+                            } else {
+                                $("#divZoneOptionsGeneralPrimaryServer").hide();
+                            }
+
+                            break;
+
+                        default:
+                            $("#divZoneOptionsGeneralPrimaryServer").show();
+                            $("#tabListZoneOptionsGeneral").show();
+                            break;
+                    }
+
+                    break;
+
+                case "Stub":
+                    {
+                        var value = "";
+
+                        for (var i = 0; i < responseJSON.response.primaryNameServerAddresses.length; i++)
+                            value += responseJSON.response.primaryNameServerAddresses[i] + "\r\n";
+
+                        $("#txtZoneOptionsPrimaryNameServerAddresses").val(value);
+                    }
+
+                    if ((responseJSON.response.catalog != null) && responseJSON.response.isSecondaryCatalogMember)
+                        $("#txtZoneOptionsPrimaryNameServerAddresses").prop("disabled", true);
+                    else
+                        $("#txtZoneOptionsPrimaryNameServerAddresses").prop("disabled", false);
+
+                    $("#divZoneOptionsPrimaryServerZoneTransferProtocol").hide();
+                    $("#divZoneOptionsPrimaryServerZoneTransferTsigKeyName").hide();
+                    $("#divZoneOptionsPrimaryServerValidateZone").hide();
+                    $("#divZoneOptionsGeneralPrimaryServer").show();
+                    $("#tabListZoneOptionsGeneral").show();
+                    break;
+
+                default:
+                    $("#divZoneOptionsGeneralPrimaryServer").hide();
+                    break;
+            }
+
+            //query access
+            {
+                switch (responseJSON.response.queryAccess) {
                     case "Allow":
-                        $("#rdZoneTransferAllow").prop("checked", true);
+                        $("#rdQueryAccessAllow").prop("checked", true);
+                        break;
+
+                    case "AllowOnlyPrivateNetworks":
+                        $("#rdQueryAccessAllowOnlyPrivateNetworks").prop("checked", true);
                         break;
 
                     case "AllowOnlyZoneNameServers":
-                        $("#rdZoneTransferAllowOnlyZoneNameServers").prop("checked", true);
+                        $("#rdQueryAccessAllowOnlyZoneNameServers").prop("checked", true);
                         break;
 
-                    case "AllowOnlySpecifiedNameServers":
-                        $("#rdZoneTransferAllowOnlySpecifiedNameServers").prop("checked", true);
-                        $("#txtZoneTransferNameServers").prop("disabled", false);
+                    case "UseSpecifiedNetworkACL":
+                        $("#rdQueryAccessUseSpecifiedNetworkACL").prop("checked", true);
+                        $("#txtQueryAccessNetworkACL").prop("disabled", false);
                         break;
 
-                    case "AllowBothZoneAndSpecifiedNameServers":
-                        $("#rdZoneTransferAllowBothZoneAndSpecifiedNameServers").prop("checked", true);
-                        $("#txtZoneTransferNameServers").prop("disabled", false);
+                    case "AllowZoneNameServersAndUseSpecifiedNetworkACL":
+                        $("#rdQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("checked", true);
+                        $("#txtQueryAccessNetworkACL").prop("disabled", false);
                         break;
 
                     case "Deny":
                     default:
-                        $("#rdZoneTransferDeny").prop("checked", true);
+                        $("#rdQueryAccessDeny").prop("checked", true);
                         break;
                 }
 
-                {
-                    var value = "";
-
-                    for (var i = 0; i < responseJSON.response.zoneTransferNameServers.length; i++)
-                        value += responseJSON.response.zoneTransferNameServers[i] + "\r\n";
-
-                    $("#txtZoneTransferNameServers").val(value);
-                }
-
-                {
-                    var value = "";
-
-                    if (responseJSON.response.zoneTransferTsigKeyNames != null) {
-                        for (var i = 0; i < responseJSON.response.zoneTransferTsigKeyNames.length; i++) {
-                            value += responseJSON.response.zoneTransferTsigKeyNames[i] + "\r\n";
-                        }
-                    }
-
-                    $("#txtZoneOptionsZoneTransferTsigKeyNames").val(value);
-                }
-
-                {
-                    var options = "<option value=\"blank\" selected></option><option value=\"none\">None</option>";
-
-                    if (responseJSON.response.availableTsigKeyNames != null) {
-                        for (var i = 0; i < responseJSON.response.availableTsigKeyNames.length; i++) {
-                            options += "<option>" + htmlEncode(responseJSON.response.availableTsigKeyNames[i]) + "</option>";
-                        }
-                    }
-
-                    $("#optZoneOptionsQuickTsigKeyNames").html(options);
-                }
-
-                //notify
-                switch (responseJSON.response.notify) {
-                    case "ZoneNameServers":
-                        $("#rdZoneNotifyZoneNameServers").prop("checked", true);
+                switch (responseJSON.response.type) {
+                    case "Stub":
+                    case "Forwarder":
+                    case "SecondaryForwarder":
+                    case "Catalog":
+                    case "SecondaryCatalog":
+                        $("#divQueryAccessAllowOnlyZoneNameServers").hide();
+                        $("#divQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").hide();
                         break;
 
-                    case "SpecifiedNameServers":
-                        $("#rdZoneNotifySpecifiedNameServers").prop("checked", true);
-                        $("#txtZoneNotifyNameServers").prop("disabled", false);
-                        break;
-
-                    case "BothZoneAndSpecifiedNameServers":
-                        $("#rdZoneNotifyBothZoneAndSpecifiedNameServers").prop("checked", true);
-                        $("#txtZoneNotifyNameServers").prop("disabled", false);
-                        break;
-
-                    case "None":
                     default:
-                        $("#rdZoneNotifyNone").prop("checked", true);
+                        $("#divQueryAccessAllowOnlyZoneNameServers").show();
+                        $("#divQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").show();
                         break;
                 }
 
                 {
                     var value = "";
 
-                    for (var i = 0; i < responseJSON.response.notifyNameServers.length; i++)
-                        value += responseJSON.response.notifyNameServers[i] + "\r\n";
+                    for (var i = 0; i < responseJSON.response.queryAccessNetworkACL.length; i++)
+                        value += responseJSON.response.queryAccessNetworkACL[i] + "\r\n";
 
-                    $("#txtZoneNotifyNameServers").val(value);
+                    $("#txtQueryAccessNetworkACL").val(value);
                 }
 
-                if (responseJSON.response.notifyFailed) {
-                    var value = "";
+                switch (responseJSON.response.type) {
+                    case "Primary":
+                    case "Forwarder":
+                    case "Catalog":
+                        if ((responseJSON.response.catalog == null) || responseJSON.response.overrideCatalogQueryAccess) {
+                            $("#rdQueryAccessDeny").prop("disabled", false);
+                            $("#rdQueryAccessAllow").prop("disabled", false);
+                            $("#rdQueryAccessAllowOnlyPrivateNetworks").prop("disabled", false);
+                            $("#rdQueryAccessAllowOnlyZoneNameServers").prop("disabled", false);
+                            $("#rdQueryAccessUseSpecifiedNetworkACL").prop("disabled", false);
+                            $("#rdQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", false);
 
-                    for (var i = 0; i < responseJSON.response.notifyFailedFor.length; i++) {
-                        if (i == 0)
-                            value = responseJSON.response.notifyFailedFor[i];
-                        else
-                            value += ", " + responseJSON.response.notifyFailedFor[i];
-                    }
+                            $("#tabListZoneOptionsQueryAccess").show();
+                        }
+                        else {
+                            $("#tabListZoneOptionsQueryAccess").hide();
+                        }
 
-                    $("#divZoneNotifyFailedNameServers").show();
-                    $("#lblZoneNotifyFailedNameServers").text(value);
-                }
-                else {
-                    $("#divZoneNotifyFailedNameServers").hide();
-                }
-
-                $("#tabListZoneOptionsZoneTranfer").show();
-                $("#tabListZoneOptionsNotify").show();
-            }
-            else {
-                $("#tabListZoneOptionsZoneTranfer").hide();
-                $("#tabListZoneOptionsNotify").hide();
-            }
-
-            if ((responseJSON.response.type == "Primary") || (responseJSON.response.type == "Secondary") || (responseJSON.response.type == "Forwarder")) {
-                //dynamic update
-                switch (responseJSON.response.update) {
-                    case "Allow":
-                        $("#rdDynamicUpdateAllow").prop("checked", true);
                         break;
 
-                    case "AllowOnlyZoneNameServers":
-                        $("#rdDynamicUpdateAllowOnlyZoneNameServers").prop("checked", true);
+                    case "Stub":
+                        if ((responseJSON.response.catalog != null) && responseJSON.response.isSecondaryCatalogMember) {
+                            if (responseJSON.response.overrideCatalogQueryAccess) {
+                                $("#rdQueryAccessDeny").prop("disabled", true);
+                                $("#rdQueryAccessAllow").prop("disabled", true);
+                                $("#rdQueryAccessAllowOnlyPrivateNetworks").prop("disabled", true);
+                                $("#rdQueryAccessAllowOnlyZoneNameServers").prop("disabled", true);
+                                $("#rdQueryAccessUseSpecifiedNetworkACL").prop("disabled", true);
+                                $("#rdQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", true);
+                                $("#txtQueryAccessNetworkACL").prop("disabled", true);
+
+                                $("#tabListZoneOptionsQueryAccess").show();
+                            }
+                            else {
+                                $("#tabListZoneOptionsQueryAccess").hide();
+                            }
+                        }
+                        else {
+                            if ((responseJSON.response.catalog == null) || responseJSON.response.overrideCatalogQueryAccess) {
+                                $("#rdQueryAccessDeny").prop("disabled", false);
+                                $("#rdQueryAccessAllow").prop("disabled", false);
+                                $("#rdQueryAccessAllowOnlyPrivateNetworks").prop("disabled", false);
+                                $("#rdQueryAccessAllowOnlyZoneNameServers").prop("disabled", false);
+                                $("#rdQueryAccessUseSpecifiedNetworkACL").prop("disabled", false);
+                                $("#rdQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", false);
+
+                                $("#tabListZoneOptionsQueryAccess").show();
+                            }
+                            else {
+                                $("#tabListZoneOptionsQueryAccess").hide();
+                            }
+                        }
+
                         break;
 
-                    case "AllowOnlySpecifiedIpAddresses":
-                        $("#rdDynamicUpdateAllowOnlySpecifiedIpAddresses").prop("checked", true);
-                        $("#txtDynamicUpdateIpAddresses").prop("disabled", false);
+                    case "Secondary":
+                    case "SecondaryForwarder":
+                        if ((responseJSON.response.catalog == null) || responseJSON.response.overrideCatalogQueryAccess) {
+                            $("#rdQueryAccessDeny").prop("disabled", responseJSON.response.catalog != null);
+                            $("#rdQueryAccessAllow").prop("disabled", responseJSON.response.catalog != null);
+                            $("#rdQueryAccessAllowOnlyPrivateNetworks").prop("disabled", responseJSON.response.catalog != null);
+                            $("#rdQueryAccessAllowOnlyZoneNameServers").prop("disabled", responseJSON.response.catalog != null);
+                            $("#rdQueryAccessUseSpecifiedNetworkACL").prop("disabled", responseJSON.response.catalog != null);
+                            $("#rdQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", responseJSON.response.catalog != null);
+
+                            if (responseJSON.response.catalog != null)
+                                $("#txtQueryAccessNetworkACL").prop("disabled", true);
+
+                            $("#tabListZoneOptionsQueryAccess").show();
+                        }
+                        else {
+                            $("#tabListZoneOptionsQueryAccess").hide();
+                        }
+
                         break;
 
-                    case "AllowBothZoneNameServersAndSpecifiedIpAddresses":
-                        $("#rdDynamicUpdateAllowBothZoneNameServersAndSpecifiedIpAddresses").prop("checked", true);
-                        $("#txtDynamicUpdateIpAddresses").prop("disabled", false);
+                    case "SecondaryCatalog":
+                        $("#rdQueryAccessDeny").prop("disabled", true);
+                        $("#rdQueryAccessAllow").prop("disabled", true);
+                        $("#rdQueryAccessAllowOnlyPrivateNetworks").prop("disabled", true);
+                        $("#rdQueryAccessAllowOnlyZoneNameServers").prop("disabled", true);
+                        $("#rdQueryAccessUseSpecifiedNetworkACL").prop("disabled", true);
+                        $("#rdQueryAccessAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", true);
+                        $("#txtQueryAccessNetworkACL").prop("disabled", true);
+
+                        $("#tabListZoneOptionsQueryAccess").show();
                         break;
 
-                    case "Deny":
                     default:
-                        $("#rdDynamicUpdateDeny").prop("checked", true);
+                        $("#tabListZoneOptionsQueryAccess").hide();
                         break;
                 }
+            }
 
-                {
-                    var value = "";
+            //zone transfer
+            switch (responseJSON.response.type) {
+                case "Primary":
+                case "Secondary":
+                case "Forwarder":
+                case "Catalog":
+                case "SecondaryCatalog":
+                    switch (responseJSON.response.zoneTransfer) {
+                        case "Allow":
+                            $("#rdZoneTransferAllow").prop("checked", true);
+                            break;
 
-                    for (var i = 0; i < responseJSON.response.updateIpAddresses.length; i++)
-                        value += responseJSON.response.updateIpAddresses[i] + "\r\n";
+                        case "AllowOnlyZoneNameServers":
+                            $("#rdZoneTransferAllowOnlyZoneNameServers").prop("checked", true);
+                            break;
 
-                    $("#txtDynamicUpdateIpAddresses").val(value);
-                }
+                        case "UseSpecifiedNetworkACL":
+                            $("#rdZoneTransferUseSpecifiedNetworkACL").prop("checked", true);
+                            $("#txtZoneTransferNetworkACL").prop("disabled", false);
+                            break;
 
-                $("#tbodyDynamicUpdateSecurityPolicy").html("");
+                        case "AllowZoneNameServersAndUseSpecifiedNetworkACL":
+                            $("#rdZoneTransferAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("checked", true);
+                            $("#txtZoneTransferNetworkACL").prop("disabled", false);
+                            break;
 
-                if ((responseJSON.response.type == "Primary") || (responseJSON.response.type == "Forwarder")) {
-                    zoneOptionsAvailableTsigKeyNames = responseJSON.response.availableTsigKeyNames;
-
-                    if (responseJSON.response.updateSecurityPolicies != null) {
-                        for (var i = 0; i < responseJSON.response.updateSecurityPolicies.length; i++)
-                            addZoneOptionsDynamicUpdatesSecurityPolicyRow(i, responseJSON.response.updateSecurityPolicies[i].tsigKeyName, responseJSON.response.updateSecurityPolicies[i].domain, responseJSON.response.updateSecurityPolicies[i].allowedTypes);
+                        case "Deny":
+                        default:
+                            $("#rdZoneTransferDeny").prop("checked", true);
+                            break;
                     }
-                }
 
-                if ((responseJSON.response.type == "Secondary") || (responseJSON.response.type == "Forwarder")) {
-                    $("#divDynamicUpdateAllowOnlyZoneNameServers").hide();
-                    $("#divDynamicUpdateAllowBothZoneNameServersAndSpecifiedIpAddresses").hide();
-                }
-                else {
-                    $("#divDynamicUpdateAllowOnlyZoneNameServers").show();
-                    $("#divDynamicUpdateAllowBothZoneNameServersAndSpecifiedIpAddresses").show();
-                }
+                    {
+                        var value = "";
 
-                if (responseJSON.response.type == "Secondary")
-                    $("#divDynamicUpdateSecurityPolicy").hide();
-                else
-                    $("#divDynamicUpdateSecurityPolicy").show();
+                        for (var i = 0; i < responseJSON.response.zoneTransferNetworkACL.length; i++)
+                            value += responseJSON.response.zoneTransferNetworkACL[i] + "\r\n";
 
-                $("#tabListZoneOptionsUpdate").show();
+                        $("#txtZoneTransferNetworkACL").val(value);
+                    }
+
+                    {
+                        var value = "";
+
+                        if (responseJSON.response.zoneTransferTsigKeyNames != null) {
+                            for (var i = 0; i < responseJSON.response.zoneTransferTsigKeyNames.length; i++) {
+                                value += responseJSON.response.zoneTransferTsigKeyNames[i] + "\r\n";
+                            }
+                        }
+
+                        $("#txtZoneOptionsZoneTransferTsigKeyNames").val(value);
+                    }
+
+                    {
+                        var options = "<option value=\"blank\" selected></option><option value=\"none\">None</option>";
+
+                        if (responseJSON.response.availableTsigKeyNames != null) {
+                            for (var i = 0; i < responseJSON.response.availableTsigKeyNames.length; i++) {
+                                options += "<option>" + htmlEncode(responseJSON.response.availableTsigKeyNames[i]) + "</option>";
+                            }
+                        }
+
+                        $("#optZoneOptionsQuickTsigKeyNames").html(options);
+                    }
+
+                    switch (responseJSON.response.type) {
+                        case "Forwarder":
+                        case "Catalog":
+                        case "SecondaryCatalog":
+                            $("#divZoneTransferAllowOnlyZoneNameServers").hide();
+                            $("#divZoneTransferAllowZoneNameServersAndUseSpecifiedNetworkACL").hide();
+                            break;
+
+                        default:
+                            $("#divZoneTransferAllowOnlyZoneNameServers").show();
+                            $("#divZoneTransferAllowZoneNameServersAndUseSpecifiedNetworkACL").show();
+                            break;
+                    }
+
+                    switch (responseJSON.response.type) {
+                        case "Primary":
+                        case "Forwarder":
+                            if ((responseJSON.response.catalog == null) || responseJSON.response.overrideCatalogZoneTransfer) {
+                                $("#rdZoneTransferDeny").prop("disabled", false);
+                                $("#rdZoneTransferAllow").prop("disabled", false);
+                                $("#rdZoneTransferAllowOnlyZoneNameServers").prop("disabled", false);
+                                $("#rdZoneTransferUseSpecifiedNetworkACL").prop("disabled", false);
+                                $("#rdZoneTransferAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", false);
+                                $("#txtZoneOptionsZoneTransferTsigKeyNames").prop("disabled", false);
+                                $("#optZoneOptionsQuickTsigKeyNames").prop("disabled", false);
+
+                                $("#tabListZoneOptionsZoneTranfer").show();
+                            }
+                            else {
+                                $("#tabListZoneOptionsZoneTranfer").hide();
+                            }
+
+                            break;
+
+                        case "Secondary":
+                            if ((responseJSON.response.catalog == null) || responseJSON.response.overrideCatalogZoneTransfer) {
+                                $("#rdZoneTransferDeny").prop("disabled", responseJSON.response.catalog != null);
+                                $("#rdZoneTransferAllow").prop("disabled", responseJSON.response.catalog != null);
+                                $("#rdZoneTransferAllowOnlyZoneNameServers").prop("disabled", responseJSON.response.catalog != null);
+                                $("#rdZoneTransferUseSpecifiedNetworkACL").prop("disabled", responseJSON.response.catalog != null);
+                                $("#rdZoneTransferAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", responseJSON.response.catalog != null);
+
+                                if (responseJSON.response.catalog != null)
+                                    $("#txtZoneTransferNetworkACL").prop("disabled", true);
+
+                                $("#txtZoneOptionsZoneTransferTsigKeyNames").prop("disabled", responseJSON.response.catalog != null);
+                                $("#optZoneOptionsQuickTsigKeyNames").prop("disabled", responseJSON.response.catalog != null);
+
+                                $("#tabListZoneOptionsZoneTranfer").show();
+                            }
+                            else {
+                                $("#tabListZoneOptionsZoneTranfer").hide();
+                            }
+
+                            break;
+
+                        case "Catalog":
+                            $("#rdZoneTransferDeny").prop("disabled", false);
+                            $("#rdZoneTransferAllow").prop("disabled", false);
+                            $("#rdZoneTransferAllowOnlyZoneNameServers").prop("disabled", false);
+                            $("#rdZoneTransferUseSpecifiedNetworkACL").prop("disabled", false);
+                            $("#rdZoneTransferAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", false);
+                            $("#txtZoneOptionsZoneTransferTsigKeyNames").prop("disabled", false);
+                            $("#optZoneOptionsQuickTsigKeyNames").prop("disabled", false);
+
+                            $("#tabListZoneOptionsZoneTranfer").show();
+                            break;
+
+                        case "SecondaryCatalog":
+                            $("#rdZoneTransferDeny").prop("disabled", true);
+                            $("#rdZoneTransferAllow").prop("disabled", true);
+                            $("#rdZoneTransferAllowOnlyZoneNameServers").prop("disabled", true);
+                            $("#rdZoneTransferUseSpecifiedNetworkACL").prop("disabled", true);
+                            $("#rdZoneTransferAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("disabled", true);
+                            $("#txtZoneTransferNetworkACL").prop("disabled", true);
+                            $("#txtZoneOptionsZoneTransferTsigKeyNames").prop("disabled", true);
+                            $("#optZoneOptionsQuickTsigKeyNames").prop("disabled", true);
+
+                            $("#tabListZoneOptionsZoneTranfer").show();
+                            break;
+                    }
+
+                    break;
+
+                default:
+                    $("#tabListZoneOptionsZoneTranfer").hide();
+                    break;
             }
-            else {
-                $("#tabListZoneOptionsUpdate").hide();
-                $("#rdDynamicUpdateDeny").prop("checked", true);
-                $("#txtDynamicUpdateIpAddresses").val("");
-                $("#tbodyDynamicUpdateSecurityPolicy").html("");
+
+            //notify
+            switch (responseJSON.response.type) {
+                case "Primary":
+                case "Secondary":
+                case "Forwarder":
+                case "Catalog":
+                    switch (responseJSON.response.notify) {
+                        case "ZoneNameServers":
+                            $("#rdZoneNotifyZoneNameServers").prop("checked", true);
+                            break;
+
+                        case "SpecifiedNameServers":
+                            $("#rdZoneNotifySpecifiedNameServers").prop("checked", true);
+                            $("#txtZoneNotifyNameServers").prop("disabled", false);
+                            break;
+
+                        case "BothZoneAndSpecifiedNameServers":
+                            $("#rdZoneNotifyBothZoneAndSpecifiedNameServers").prop("checked", true);
+                            $("#txtZoneNotifyNameServers").prop("disabled", false);
+                            break;
+
+                        case "None":
+                        default:
+                            $("#rdZoneNotifyNone").prop("checked", true);
+                            break;
+                    }
+
+                    {
+                        var value = "";
+
+                        for (var i = 0; i < responseJSON.response.notifyNameServers.length; i++)
+                            value += responseJSON.response.notifyNameServers[i] + "\r\n";
+
+                        $("#txtZoneNotifyNameServers").val(value);
+                    }
+
+                    if (responseJSON.response.notifyFailed) {
+                        var value = "";
+
+                        for (var i = 0; i < responseJSON.response.notifyFailedFor.length; i++) {
+                            if (i == 0)
+                                value = responseJSON.response.notifyFailedFor[i];
+                            else
+                                value += ", " + responseJSON.response.notifyFailedFor[i];
+                        }
+
+                        if ((responseJSON.response.catalog != null) && !responseJSON.response.overrideCatalogNotify) {
+                            $("#divZoneOptionsCatalogNotifyFailedNameServers").show();
+                            $("#lblZoneOptionsCatalogNotifyFailedNameServers").text(value);
+                        }
+
+                        $("#divZoneNotifyFailedNameServers").show();
+                        $("#lblZoneNotifyFailedNameServers").text(value);
+                    }
+                    else {
+                        $("#divZoneNotifyFailedNameServers").hide();
+                    }
+
+                    switch (responseJSON.response.type) {
+                        case "Forwarder":
+                        case "Catalog":
+                            $("#divZoneNotifyZoneNameServers").hide();
+                            $("#divZoneNotifyBothZoneAndSpecifiedNameServers").hide();
+                            break;
+
+                        default:
+                            $("#divZoneNotifyZoneNameServers").show();
+                            $("#divZoneNotifyBothZoneAndSpecifiedNameServers").show();
+                            break;
+                    }
+
+                    switch (responseJSON.response.type) {
+                        case "Primary":
+                        case "Forwarder":
+                            if ((responseJSON.response.catalog == null) || responseJSON.response.overrideCatalogNotify)
+                                $("#tabListZoneOptionsNotify").show();
+                            else
+                                $("#tabListZoneOptionsNotify").hide();
+
+                            break;
+
+                        case "Secondary":
+                        case "Catalog":
+                            $("#tabListZoneOptionsNotify").show();
+                            break;
+                    }
+                    break;
+
+                default:
+                    $("#tabListZoneOptionsNotify").hide();
+                    break;
             }
 
-            if (responseJSON.response.type == "Forwarder") {
-                $("#tabListZoneOptionsZoneTranfer").removeClass("active");
-                $("#tabPaneZoneOptionsZoneTransfer").removeClass("active");
-                $("#tabListZoneOptionsNotify").removeClass("active");
-                $("#tabPaneZoneOptionsNotify").removeClass("active");
-                $("#tabListZoneOptionsUpdate").addClass("active");
-                $("#tabPaneZoneOptionsUpdate").addClass("active");
+            //dynamic update
+            switch (responseJSON.response.type) {
+                case "Primary":
+                case "Secondary":
+                case "SecondaryForwarder":
+                case "Forwarder":
+                    //dynamic update
+                    switch (responseJSON.response.update) {
+                        case "Allow":
+                            $("#rdDynamicUpdateAllow").prop("checked", true);
+                            break;
+
+                        case "AllowOnlyZoneNameServers":
+                            $("#rdDynamicUpdateAllowOnlyZoneNameServers").prop("checked", true);
+                            break;
+
+                        case "UseSpecifiedNetworkACL":
+                            $("#rdDynamicUpdateUseSpecifiedNetworkACL").prop("checked", true);
+                            $("#txtDynamicUpdateNetworkACL").prop("disabled", false);
+                            break;
+
+                        case "AllowZoneNameServersAndUseSpecifiedNetworkACL":
+                            $("#rdDynamicUpdateAllowZoneNameServersAndUseSpecifiedNetworkACL").prop("checked", true);
+                            $("#txtDynamicUpdateNetworkACL").prop("disabled", false);
+                            break;
+
+                        case "Deny":
+                        default:
+                            $("#rdDynamicUpdateDeny").prop("checked", true);
+                            break;
+                    }
+
+                    {
+                        var value = "";
+
+                        for (var i = 0; i < responseJSON.response.updateNetworkACL.length; i++)
+                            value += responseJSON.response.updateNetworkACL[i] + "\r\n";
+
+                        $("#txtDynamicUpdateNetworkACL").val(value);
+                    }
+
+                    $("#tbodyDynamicUpdateSecurityPolicy").html("");
+
+                    switch (responseJSON.response.type) {
+                        case "Primary":
+                        case "Forwarder":
+                            zoneOptionsAvailableTsigKeyNames = responseJSON.response.availableTsigKeyNames;
+
+                            if (responseJSON.response.updateSecurityPolicies != null) {
+                                for (var i = 0; i < responseJSON.response.updateSecurityPolicies.length; i++)
+                                    addZoneOptionsDynamicUpdatesSecurityPolicyRow(i, responseJSON.response.updateSecurityPolicies[i].tsigKeyName, responseJSON.response.updateSecurityPolicies[i].domain, responseJSON.response.updateSecurityPolicies[i].allowedTypes);
+                            }
+
+                            $("#divDynamicUpdateSecurityPolicy").show();
+                            break;
+
+                        default:
+                            $("#divDynamicUpdateSecurityPolicy").hide();
+                            break;
+                    }
+
+                    switch (responseJSON.response.type) {
+                        case "Secondary":
+                        case "SecondaryForwarder":
+                        case "Forwarder":
+                            $("#divDynamicUpdateAllowOnlyZoneNameServers").hide();
+                            $("#divDynamicUpdateAllowZoneNameServersAndUseSpecifiedNetworkACL").hide();
+                            break;
+
+                        default:
+                            $("#divDynamicUpdateAllowOnlyZoneNameServers").show();
+                            $("#divDynamicUpdateAllowZoneNameServersAndUseSpecifiedNetworkACL").show();
+                            break;
+                    }
+
+                    $("#tabListZoneOptionsUpdate").show();
+                    break;
+
+                default:
+                    $("#tabListZoneOptionsUpdate").hide();
+                    break;
             }
-            else {
-                $("#tabListZoneOptionsZoneTranfer").addClass("active");
-                $("#tabPaneZoneOptionsZoneTransfer").addClass("active");
-                $("#tabListZoneOptionsNotify").removeClass("active");
-                $("#tabPaneZoneOptionsNotify").removeClass("active");
-                $("#tabListZoneOptionsUpdate").removeClass("active");
-                $("#tabPaneZoneOptionsUpdate").removeClass("active");
+
+            //tab focus
+            switch (responseJSON.response.type) {
+                case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
+                case "Stub":
+                    $("#tabListZoneOptionsGeneral").addClass("active");
+                    $("#tabPaneZoneOptionsGeneral").addClass("active");
+                    $("#tabListZoneOptionsQueryAccess").removeClass("active");
+                    $("#tabPaneZoneOptionsQueryAccess").removeClass("active");
+                    $("#tabListZoneOptionsZoneTranfer").removeClass("active");
+                    $("#tabPaneZoneOptionsZoneTransfer").removeClass("active");
+                    $("#tabListZoneOptionsNotify").removeClass("active");
+                    $("#tabPaneZoneOptionsNotify").removeClass("active");
+                    $("#tabListZoneOptionsUpdate").removeClass("active");
+                    $("#tabPaneZoneOptionsUpdate").removeClass("active");
+                    break;
+
+                case "Catalog":
+                    $("#tabListZoneOptionsGeneral").removeClass("active");
+                    $("#tabPaneZoneOptionsGeneral").removeClass("active");
+                    $("#tabListZoneOptionsQueryAccess").addClass("active");
+                    $("#tabPaneZoneOptionsQueryAccess").addClass("active");
+                    $("#tabListZoneOptionsZoneTranfer").removeClass("active");
+                    $("#tabPaneZoneOptionsZoneTransfer").removeClass("active");
+                    $("#tabListZoneOptionsNotify").removeClass("active");
+                    $("#tabPaneZoneOptionsNotify").removeClass("active");
+                    $("#tabListZoneOptionsUpdate").removeClass("active");
+                    $("#tabPaneZoneOptionsUpdate").removeClass("active");
+                    break;
+
+                case "Primary":
+                case "Forwarder":
+                    if (responseJSON.response.availableCatalogZoneNames.length > 0) {
+                        $("#tabListZoneOptionsGeneral").addClass("active");
+                        $("#tabPaneZoneOptionsGeneral").addClass("active");
+                        $("#tabListZoneOptionsQueryAccess").removeClass("active");
+                        $("#tabPaneZoneOptionsQueryAccess").removeClass("active");
+                        $("#tabListZoneOptionsZoneTranfer").removeClass("active");
+                        $("#tabPaneZoneOptionsZoneTransfer").removeClass("active");
+                        $("#tabListZoneOptionsNotify").removeClass("active");
+                        $("#tabPaneZoneOptionsNotify").removeClass("active");
+                        $("#tabListZoneOptionsUpdate").removeClass("active");
+                        $("#tabPaneZoneOptionsUpdate").removeClass("active");
+                    }
+                    else {
+                        $("#tabListZoneOptionsGeneral").removeClass("active");
+                        $("#tabPaneZoneOptionsGeneral").removeClass("active");
+                        $("#tabListZoneOptionsQueryAccess").addClass("active");
+                        $("#tabPaneZoneOptionsQueryAccess").addClass("active");
+                        $("#tabListZoneOptionsZoneTranfer").removeClass("active");
+                        $("#tabPaneZoneOptionsZoneTransfer").removeClass("active");
+                        $("#tabListZoneOptionsNotify").removeClass("active");
+                        $("#tabPaneZoneOptionsNotify").removeClass("active");
+                        $("#tabListZoneOptionsUpdate").removeClass("active");
+                        $("#tabPaneZoneOptionsUpdate").removeClass("active");
+                    }
+                    break;
             }
 
             divZoneOptionsLoader.hide();
@@ -1184,16 +1920,50 @@ function saveZoneOptions() {
     var divZoneOptionsAlert = $("#divZoneOptionsAlert");
     var divZoneOptionsLoader = $("#divZoneOptionsLoader");
     var zone = $("#lblZoneOptionsZoneName").attr("data-zone");
+    var zoneType = $("#lblZoneOptionsZoneName").attr("data-zone-type");
+
+    //general catalog zone name
+    var catalog = $("#optZoneOptionsCatalogZoneName").val();
+    if (catalog == null)
+        catalog = "";
+
+    var overrideCatalogQueryAccess = $("#chkZoneOptionsCatalogOverrideQueryAccess").prop("checked");
+    var overrideCatalogZoneTransfer = $("#chkZoneOptionsCatalogOverrideZoneTransfer").prop("checked");
+    var overrideCatalogNotify = $("#chkZoneOptionsCatalogOverrideNotify").prop("checked");
+
+    //general primary name server for secondary & stub
+    var primaryNameServerAddresses = cleanTextList($("#txtZoneOptionsPrimaryNameServerAddresses").val());
+
+    switch (zoneType) {
+        case "SecondaryForwarder":
+        case "SecondaryCatalog":
+            if ((primaryNameServerAddresses.length === 0) || (primaryNameServerAddresses === ",")) {
+                showAlert("warning", "Missing!", "Please enter at least one primary name server address to proceed.", divZoneOptionsAlert);
+                $("#txtZoneOptionsPrimaryNameServerAddresses").focus();
+                return;
+            }
+
+            break;
+    }
+
+    var primaryZoneTransferProtocol = $("input[name=rdPrimaryZoneTransferProtocol]:checked").val();
+    var primaryZoneTransferTsigKeyName = $("#optZoneOptionsPrimaryZoneTransferTsigKeyName").val();
+    var validateZone = $("#chkZoneOptionsValidateZone").prop("checked");
+
+    //query access
+    var queryAccess = $("input[name=rdQueryAccess]:checked").val();
+
+    var queryAccessNetworkACL = cleanTextList($("#txtQueryAccessNetworkACL").val());
 
     //zone transfer
     var zoneTransfer = $("input[name=rdZoneTransfer]:checked").val();
 
-    var zoneTransferNameServers = cleanTextList($("#txtZoneTransferNameServers").val());
+    var zoneTransferNetworkACL = cleanTextList($("#txtZoneTransferNetworkACL").val());
 
-    if ((zoneTransferNameServers.length === 0) || (zoneTransferNameServers === ","))
-        zoneTransferNameServers = false;
+    if ((zoneTransferNetworkACL.length === 0) || (zoneTransferNetworkACL === ","))
+        zoneTransferNetworkACL = false;
     else
-        $("#txtZoneTransferNameServers").val(zoneTransferNameServers.replace(/,/g, "\n"));
+        $("#txtZoneTransferNetworkACL").val(zoneTransferNetworkACL.replace(/,/g, "\n"));
 
     var zoneTransferTsigKeyNames = cleanTextList($("#txtZoneOptionsZoneTransferTsigKeyNames").val());
 
@@ -1215,12 +1985,12 @@ function saveZoneOptions() {
     //dynamic update
     var update = $("input[name=rdDynamicUpdate]:checked").val();
 
-    var updateIpAddresses = cleanTextList($("#txtDynamicUpdateIpAddresses").val());
+    var updateNetworkACL = cleanTextList($("#txtDynamicUpdateNetworkACL").val());
 
-    if ((updateIpAddresses.length === 0) || (updateIpAddresses === ","))
-        updateIpAddresses = false;
+    if ((updateNetworkACL.length === 0) || (updateNetworkACL === ","))
+        updateNetworkACL = false;
     else
-        $("#txtDynamicUpdateIpAddresses").val(updateIpAddresses.replace(/,/g, "\n"));
+        $("#txtDynamicUpdateNetworkACL").val(updateNetworkACL.replace(/,/g, "\n"));
 
     var updateSecurityPolicies = serializeTableData($("#tableDynamicUpdateSecurityPolicy"), 3, divZoneOptionsAlert);
     if (updateSecurityPolicies === false)
@@ -1234,12 +2004,53 @@ function saveZoneOptions() {
 
     HTTPRequest({
         url: "/api/zones/options/set?token=" + sessionData.token + "&zone=" + zone
-            + "&zoneTransfer=" + zoneTransfer + "&zoneTransferNameServers=" + encodeURIComponent(zoneTransferNameServers) + "&zoneTransferTsigKeyNames=" + encodeURIComponent(zoneTransferTsigKeyNames)
+            + "&catalog=" + encodeURIComponent(catalog) + "&overrideCatalogQueryAccess=" + overrideCatalogQueryAccess + "&overrideCatalogZoneTransfer=" + overrideCatalogZoneTransfer + "&overrideCatalogNotify=" + overrideCatalogNotify
+            + "&primaryNameServerAddresses=" + encodeURIComponent(primaryNameServerAddresses) + "&primaryZoneTransferProtocol=" + primaryZoneTransferProtocol + "&primaryZoneTransferTsigKeyName=" + encodeURIComponent(primaryZoneTransferTsigKeyName) + "&validateZone=" + validateZone
+            + "&queryAccess=" + queryAccess + "&queryAccessNetworkACL=" + encodeURIComponent(queryAccessNetworkACL)
+            + "&zoneTransfer=" + zoneTransfer + "&zoneTransferNetworkACL=" + encodeURIComponent(zoneTransferNetworkACL) + "&zoneTransferTsigKeyNames=" + encodeURIComponent(zoneTransferTsigKeyNames)
             + "&notify=" + notify + "&notifyNameServers=" + encodeURIComponent(notifyNameServers)
-            + "&update=" + update + "&updateIpAddresses=" + encodeURIComponent(updateIpAddresses) + "&updateSecurityPolicies=" + encodeURIComponent(updateSecurityPolicies),
+            + "&update=" + update + "&updateNetworkACL=" + encodeURIComponent(updateNetworkACL) + "&updateSecurityPolicies=" + encodeURIComponent(updateSecurityPolicies),
         success: function (responseJSON) {
             btn.button("reset");
             $("#modalZoneOptions").modal("hide");
+
+            var zonesRowId = $("#btnSaveZoneOptions").attr("data-zones-row-id");
+            if (zonesRowId == null) {
+                switch (zoneType) {
+                    case "Catalog":
+                    case "SecondaryCatalog":
+                        break;
+
+                    default:
+                        if ((catalog == null) || (catalog == "")) {
+                            $("#titleEditZoneCatalog").hide();
+                        }
+                        else {
+                            $("#titleEditZoneCatalog").attr("class", "label label-default");
+                            $("#titleEditZoneCatalog").text(catalog);
+                            $("#titleEditZoneCatalog").show();
+                        }
+
+                        break;
+                }
+            }
+            else {
+                switch (zoneType) {
+                    case "Catalog":
+                    case "SecondaryCatalog":
+                        break;
+
+                    default:
+                        if ((catalog == null) || (catalog == "")) {
+                            $("#tagZoneCatalogName" + zonesRowId).hide();
+                        }
+                        else {
+                            $("#tagZoneCatalogName" + zonesRowId).text(catalog);
+                            $("#tagZoneCatalogName" + zonesRowId).show();
+                        }
+                        break;
+                }
+            }
 
             showAlert("success", "Options Saved!", "Zone options were saved successfully.");
         },
@@ -1432,10 +2243,12 @@ function showAddZoneModal() {
 
     $("#txtAddZone").val("");
     $("#rdAddZoneTypePrimary").prop("checked", true);
+    $("#divAddZoneCatalogZone").hide();
     $("#chkAddZoneUseSoaSerialDateScheme").prop("checked", $("#chkUseSoaSerialDateScheme").prop("checked"));
     $("#txtAddZonePrimaryNameServerAddresses").val("");
     $("#rdAddZoneZoneTransferProtocolTcp").prop("checked", true);
     $("#optAddZoneTsigKeyName").val("");
+    $("#chkAddZoneValidateZone").prop("checked", false);
     $("input[name=rdAddZoneForwarderProtocol]:radio").attr("disabled", false);
     $("#rdAddZoneForwarderProtocolUdp").prop("checked", true);
     $("#chkAddZoneForwarderThisServer").prop("checked", false);
@@ -1457,6 +2270,7 @@ function showAddZoneModal() {
     $("#divAddZonePrimaryNameServerAddresses").hide();
     $("#divAddZoneZoneTransferProtocol").hide();
     $("#divAddZoneTsigKeyName").hide();
+    $("#divAddZoneValidateZone").hide();
     $("#divAddZoneForwarderProtocol").hide();
     $("#divAddZoneForwarder").hide();
     $("#divAddZoneForwarderDnssecValidation").hide();
@@ -1469,6 +2283,59 @@ function showAddZoneModal() {
     setTimeout(function () {
         $("#txtAddZone").focus();
     }, 1000);
+
+    loadCatalogZoneNames($("#optAddZoneCatalogZoneName"), null, $("#divAddZoneAlert"), $("#divAddZoneCatalogZone"));
+}
+
+function loadCatalogZoneNames(jqDropDown, currentValue, divAlertPlaceholder, divCatalogZone) {
+    jqDropDown.prop("disabled", true);
+    jqDropDown.attr("hasItems", false);
+
+    if (currentValue == null)
+        currentValue = "";
+
+    if (currentValue.length == 0) {
+        jqDropDown.html("<option selected></option>");
+    }
+    else {
+        jqDropDown.html("<option></option><option selected>" + htmlEncode(currentValue) + "</option>");
+        jqDropDown.val(currentValue);
+    }
+
+    HTTPRequest({
+        url: "/api/zones/catalogs/list?token=" + sessionData.token,
+        success: function (responseJSON) {
+            loadCatalogZoneNamesFrom(responseJSON.response.catalogZoneNames, jqDropDown, currentValue);
+
+            if ((divCatalogZone != null) && (responseJSON.response.catalogZoneNames.length > 0))
+                divCatalogZone.show();
+        },
+        error: function () {
+            jqDropDown.prop("disabled", false);
+        },
+        invalidToken: function () {
+            jqDropDown.prop("disabled", false);
+            showPageLogin();
+        },
+        objAlertPlaceholder: divAlertPlaceholder
+    });
+}
+
+function loadCatalogZoneNamesFrom(catalogZoneNames, jqDropDown, currentValue) {
+    var optionsHtml;
+
+    if ((currentValue == null) || (currentValue.length == 0))
+        optionsHtml = "<option selected></option>";
+    else
+        optionsHtml = "<option></option>";
+
+    for (var i = 0; i < catalogZoneNames.length; i++) {
+        optionsHtml += "<option" + (catalogZoneNames[i] === currentValue ? " selected" : "") + ">" + htmlEncode(catalogZoneNames[i]) + "</option>";
+    }
+
+    jqDropDown.html(optionsHtml);
+    jqDropDown.prop("disabled", false);
+    jqDropDown.attr("hasItems", catalogZoneNames.length > 0);
 }
 
 function loadTsigKeyNames(jqDropDown, currentValue, divAlertPlaceholder) {
@@ -1488,19 +2355,7 @@ function loadTsigKeyNames(jqDropDown, currentValue, divAlertPlaceholder) {
     HTTPRequest({
         url: "/api/settings/getTsigKeyNames?token=" + sessionData.token,
         success: function (responseJSON) {
-            var optionsHtml;
-
-            if (currentValue.length == 0)
-                optionsHtml = "<option selected></option>";
-            else
-                optionsHtml = "<option></option>";
-
-            for (var i = 0; i < responseJSON.response.tsigKeyNames.length; i++) {
-                optionsHtml += "<option" + (responseJSON.response.tsigKeyNames[i] === currentValue ? " selected" : "") + ">" + htmlEncode(responseJSON.response.tsigKeyNames[i]) + "</option>";
-            }
-
-            jqDropDown.html(optionsHtml);
-            jqDropDown.prop("disabled", false);
+            loadTsigKeyNamesFrom(responseJSON.response.tsigKeyNames, jqDropDown, currentValue);
         },
         error: function () {
             jqDropDown.prop("disabled", false);
@@ -1511,6 +2366,22 @@ function loadTsigKeyNames(jqDropDown, currentValue, divAlertPlaceholder) {
         },
         objAlertPlaceholder: divAlertPlaceholder
     });
+}
+
+function loadTsigKeyNamesFrom(tsigKeyNames, jqDropDown, currentValue) {
+    var optionsHtml;
+
+    if ((currentValue == null) || (currentValue.length == 0))
+        optionsHtml = "<option selected></option>";
+    else
+        optionsHtml = "<option></option>";
+
+    for (var i = 0; i < tsigKeyNames.length; i++) {
+        optionsHtml += "<option" + (tsigKeyNames[i] === currentValue ? " selected" : "") + ">" + htmlEncode(tsigKeyNames[i]) + "</option>";
+    }
+
+    jqDropDown.html(optionsHtml);
+    jqDropDown.prop("disabled", false);
 }
 
 function updateAddZoneFormForwarderThisServer() {
@@ -1552,34 +2423,39 @@ function addZone() {
 
     switch (type) {
         case "Primary":
+            var catalog = $("#optAddZoneCatalogZoneName").val();
             var useSoaSerialDateScheme = $("#chkAddZoneUseSoaSerialDateScheme").prop("checked");
 
-            parameters = "&useSoaSerialDateScheme=" + useSoaSerialDateScheme;
+            parameters = "&catalog=" + catalog + "&useSoaSerialDateScheme=" + useSoaSerialDateScheme;
             break;
 
         case "Secondary":
-            var tsigKeyName = $("#optAddZoneTsigKeyName").val();
-
             parameters = "&primaryNameServerAddresses=" + encodeURIComponent(cleanTextList($("#txtAddZonePrimaryNameServerAddresses").val()));
             parameters += "&zoneTransferProtocol=" + $("input[name=rdAddZoneZoneTransferProtocol]:checked").val();
-            parameters += "&tsigKeyName=" + encodeURIComponent(tsigKeyName);
+            parameters += "&tsigKeyName=" + encodeURIComponent($("#optAddZoneTsigKeyName").val());
+            parameters += "&validateZone=" + $("#chkAddZoneValidateZone").prop("checked");
             break;
 
         case "Stub":
-            parameters = "&primaryNameServerAddresses=" + encodeURIComponent(cleanTextList($("#txtAddZonePrimaryNameServerAddresses").val()));
+            var catalog = $("#optAddZoneCatalogZoneName").val();
+
+            parameters = "&catalog=" + catalog + "&primaryNameServerAddresses=" + encodeURIComponent(cleanTextList($("#txtAddZonePrimaryNameServerAddresses").val()));
             break;
 
         case "Forwarder":
+            var catalog = $("#optAddZoneCatalogZoneName").val();
+            var protocol = $("input[name=rdAddZoneForwarderProtocol]:checked").val();
+
             var forwarder = $("#txtAddZoneForwarder").val();
             if ((forwarder == null) || (forwarder === "")) {
-                showAlert("warning", "Missing!", "Please enter a forwarder server name to add zone.", divAddZoneAlert);
+                showAlert("warning", "Missing!", "Please enter a forwarder server address to add zone.", divAddZoneAlert);
                 $("#txtAddZoneForwarder").focus();
                 return;
             }
 
             var dnssecValidation = $("#chkAddZoneForwarderDnssecValidation").prop("checked");
 
-            parameters = "&protocol=" + $("input[name=rdAddZoneForwarderProtocol]:checked").val() + "&forwarder=" + encodeURIComponent(forwarder) + "&dnssecValidation=" + dnssecValidation;
+            parameters = "&catalog=" + catalog + "&protocol=" + protocol + "&forwarder=" + encodeURIComponent(forwarder) + "&dnssecValidation=" + dnssecValidation;
 
             if (forwarder !== "this-server") {
                 var proxyType = $("input[name=rdAddZoneForwarderProxyType]:checked").val();
@@ -1610,6 +2486,20 @@ function addZone() {
                         break;
                 }
             }
+            break;
+
+        case "SecondaryForwarder":
+        case "SecondaryCatalog":
+            var primaryNameServerAddresses = cleanTextList($("#txtAddZonePrimaryNameServerAddresses").val());
+            if ((primaryNameServerAddresses.length === 0) || (primaryNameServerAddresses === ",")) {
+                showAlert("warning", "Missing!", "Please enter at least one primary name server address to proceed.", divAddZoneAlert);
+                $("#txtAddZonePrimaryNameServerAddresses").focus();
+                return;
+            }
+
+            parameters = "&primaryNameServerAddresses=" + encodeURIComponent(primaryNameServerAddresses);
+            parameters += "&zoneTransferProtocol=" + $("input[name=rdAddZoneZoneTransferProtocol]:checked").val();
+            parameters += "&tsigKeyName=" + encodeURIComponent($("#optAddZoneTsigKeyName").val());
             break;
 
         default:
@@ -1680,11 +2570,11 @@ function showEditZone(zone, showPageNumber) {
             switch (responseJSON.response.zone.dnssecStatus) {
                 case "SignedWithNSEC":
                 case "SignedWithNSEC3":
-                    $("#titleDnssecStatusEditZone").show();
+                    $("#titleEditZoneDnssecStatus").show();
                     break;
 
                 default:
-                    $("#titleDnssecStatusEditZone").hide();
+                    $("#titleEditZoneDnssecStatus").hide();
                     break;
             }
 
@@ -1693,6 +2583,8 @@ function showEditZone(zone, showPageNumber) {
                 status = "Disabled";
             else if (responseJSON.response.zone.isExpired)
                 status = "Expired";
+            else if (responseJSON.response.zone.validationFailed)
+                status = "Validation Failed";
             else if (responseJSON.response.zone.syncFailed)
                 status = "Sync Failed";
             else if (responseJSON.response.zone.notifyFailed)
@@ -1700,14 +2592,47 @@ function showEditZone(zone, showPageNumber) {
             else
                 status = "Enabled";
 
+            if (responseJSON.response.zone.catalog != null) {
+                $("#titleEditZoneCatalog").attr("class", "label label-default");
+                $("#titleEditZoneCatalog").text(responseJSON.response.zone.catalog);
+                $("#titleEditZoneCatalog").show();
+            }
+            else {
+                switch (zoneType) {
+                    case "Catalog":
+                    case "SecondaryCatalog":
+                        $("#titleEditZoneCatalog").attr("class", "label label-info");
+                        $("#titleEditZoneCatalog").text(zone);
+                        $("#titleEditZoneCatalog").show();
+                        break;
+
+                    default:
+                        $("#titleEditZoneCatalog").hide();
+                        break;
+                }
+            }
+
             var expiry = responseJSON.response.zone.expiry;
             if (expiry == null)
                 expiry = "&nbsp;";
             else
                 expiry = "Expiry: " + moment(expiry).local().format("YYYY-MM-DD HH:mm:ss");
 
-            $("#titleEditZoneType").html(zoneType);
-            $("#titleStatusEditZone").html(status);
+            switch (zoneType) {
+                case "SecondaryForwarder":
+                    $("#titleEditZoneType").html("Secondary Forwarder");
+                    break;
+
+                case "SecondaryCatalog":
+                    $("#titleEditZoneType").html("Secondary Catalog");
+                    break;
+
+                default:
+                    $("#titleEditZoneType").html(zoneType);
+                    break;
+            }
+
+            $("#titleEditZoneStatus").html(status);
             $("#titleEditZoneExpiry").html(expiry);
 
             if (responseJSON.response.zone.internal)
@@ -1719,22 +2644,26 @@ function showEditZone(zone, showPageNumber) {
                 case "Disabled":
                 case "Sync Failed":
                 case "Notify Failed":
-                    $("#titleStatusEditZone").attr("class", "label label-warning");
+                    $("#titleEditZoneStatus").attr("class", "label label-warning");
                     break;
 
                 case "Expired":
-                    $("#titleStatusEditZone").attr("class", "label label-danger");
+                case "Validation Failed":
+                    $("#titleEditZoneStatus").attr("class", "label label-danger");
                     break;
 
-                case "Enabled":
-                    $("#titleStatusEditZone").attr("class", "label label-success");
+                default:
+                    $("#titleEditZoneStatus").attr("class", "label label-success");
                     break;
             }
 
             switch (zoneType) {
                 case "Internal":
                 case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
                 case "Stub":
+                case "Catalog":
                     $("#btnEditZoneAddRecord").hide();
                     break;
 
@@ -1791,6 +2720,8 @@ function showEditZone(zone, showPageNumber) {
 
             switch (zoneType) {
                 case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
                 case "Stub":
                     $("#btnZoneResync").show();
                     break;
@@ -1803,7 +2734,11 @@ function showEditZone(zone, showPageNumber) {
             switch (zoneType) {
                 case "Primary":
                 case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
+                case "Stub":
                 case "Forwarder":
+                case "Catalog":
                     $("#divOptionsMenu").show();
                     break;
 
@@ -1820,6 +2755,9 @@ function showEditZone(zone, showPageNumber) {
                     break;
 
                 case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
+                case "Catalog":
                     $("#lnkImportZone").hide();
                     $("#lnkExportZone").show();
                     break;
@@ -1833,6 +2771,7 @@ function showEditZone(zone, showPageNumber) {
             switch (zoneType) {
                 case "Primary":
                 case "Secondary":
+                case "SecondaryForwarder":
                 case "Forwarder":
                     $("#lnkZoneConvert").show();
                     break;
@@ -1845,7 +2784,11 @@ function showEditZone(zone, showPageNumber) {
             switch (zoneType) {
                 case "Primary":
                 case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
+                case "Stub":
                 case "Forwarder":
+                case "Catalog":
                     $("#lnkZoneOptions").show();
                     break;
 
@@ -1857,8 +2800,11 @@ function showEditZone(zone, showPageNumber) {
             switch (zoneType) {
                 case "Primary":
                 case "Secondary":
+                case "SecondaryForwarder":
+                case "SecondaryCatalog":
                 case "Stub":
                 case "Forwarder":
+                case "Catalog":
                     $("#btnZonePermissions").show();
                     break;
 
@@ -2066,11 +3012,11 @@ function showEditZonePage(pageNumber) {
 }
 
 function getZoneRecordRowHtml(index, zone, zoneType, record) {
-    var name = record.name.toLowerCase();
+    var name = record.name;
     if (name === "")
         name = ".";
 
-    if (name === zone)
+    if (name.toLowerCase() === zone)
         name = "@";
     else
         name = name.replace("." + zone, "");
@@ -2079,26 +3025,15 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
     tableHtmlRow += "<td>" + record.type + "</td>";
     tableHtmlRow += "<td>" + record.ttl + "</td>";
 
-    var lastUsedOn;
-
-    if (record.lastUsedOn == "0001-01-01T00:00:00")
-        lastUsedOn = moment(record.lastUsedOn).local().format("YYYY-MM-DD HH:mm:ss") + " (never)";
-    else
-        lastUsedOn = moment(record.lastUsedOn).local().format("YYYY-MM-DD HH:mm:ss") + " (" + moment(record.lastUsedOn).fromNow() + ")";
-
     var additionalDataAttributes = "";
+
+    tableHtmlRow += "<td style=\"word-break: break-all;\">";
 
     switch (record.type.toUpperCase()) {
         case "A":
         case "AAAA":
-            tableHtmlRow += "<td style=\"word-break: break-all;\">" + htmlEncode(record.rData.ipAddress);
-
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += htmlEncode(record.rData.ipAddress);
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-ip-address=\"" + htmlEncode(record.rData.ipAddress) + "\" ";
             break;
@@ -2115,7 +3050,7 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                 }
             }
 
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Name Server:</b> " + htmlEncode(record.rData.nameServer);
+            tableHtmlRow += "<b>Name Server:</b> " + htmlEncode(record.rData.nameServer);
 
             if (notifyFailed)
                 tableHtmlRow += "<span class=\"label label-warning\" style=\"margin-left: 8px;\">Notify Failed</span>";
@@ -2137,31 +3072,20 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                 additionalDataAttributes = "data-record-glue=\"\" ";
             }
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes += "data-record-name-server=\"" + htmlEncode(record.rData.nameServer) + "\" ";
             break;
 
         case "CNAME":
-            tableHtmlRow += "<td style=\"word-break: break-all;\">" + htmlEncode(record.rData.cname);
-
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += htmlEncode(record.rData.cname);
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-cname=\"" + htmlEncode(record.rData.cname) + "\" ";
             break;
 
         case "SOA":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Primary Name Server:</b> " + htmlEncode(record.rData.primaryNameServer) +
+            tableHtmlRow += "<b>Primary Name Server:</b> " + htmlEncode(record.rData.primaryNameServer) +
                 "<br /><b>Responsible Person:</b> " + htmlEncode(record.rData.responsiblePerson) +
                 "<br /><b>Serial:</b> " + htmlEncode(record.rData.serial) +
                 "<br /><b>Refresh:</b> " + htmlEncode(record.rData.refresh) +
@@ -2178,36 +3102,7 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                 additionalDataAttributes = "data-record-serial-scheme=\"false\" ";
             }
 
-            if (record.rData.primaryAddresses != null) {
-                tableHtmlRow += "<br /><br /><b>Primary Name Server Addresses:</b> " + record.rData.primaryAddresses;
-
-                additionalDataAttributes += "data-record-paddresses=\"" + htmlEncode(record.rData.primaryAddresses) + "\" ";
-            } else {
-                additionalDataAttributes += "data-record-paddresses=\"\" ";
-            }
-
-            if (record.rData.zoneTransferProtocol != null) {
-                tableHtmlRow += "<br /><b>Zone Transfer Protocol:</b> XFR-over-" + record.rData.zoneTransferProtocol.toUpperCase();
-
-                additionalDataAttributes += "data-record-zonetransferprotocol=\"" + htmlEncode(record.rData.zoneTransferProtocol) + "\" ";
-            } else {
-                additionalDataAttributes += "data-record-zonetransferprotocol=\"\" ";
-            }
-
-            if (record.rData.tsigKeyName != null) {
-                tableHtmlRow += "<br /><b>TSIG Key Name:</b> " + record.rData.tsigKeyName;
-
-                additionalDataAttributes += "data-record-tsigkeyname=\"" + htmlEncode(record.rData.tsigKeyName) + "\" ";
-            } else {
-                additionalDataAttributes += "data-record-tsigkeyname=\"\" ";
-            }
-
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes += "data-record-pname=\"" + htmlEncode(record.rData.primaryNameServer) + "\" " +
                 "data-record-rperson=\"" + htmlEncode(record.rData.responsiblePerson) + "\" " +
@@ -2219,58 +3114,67 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
             break;
 
         case "PTR":
-            tableHtmlRow += "<td style=\"word-break: break-all;\">" + htmlEncode(record.rData.ptrName);
-
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += htmlEncode(record.rData.ptrName);
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-ptr-name=\"" + htmlEncode(record.rData.ptrName) + "\" ";
             break;
 
         case "MX":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Preference: </b> " + htmlEncode(record.rData.preference) +
+            tableHtmlRow += "<b>Preference: </b> " + htmlEncode(record.rData.preference) +
                 "<br /><b>Exchange:</b> " + htmlEncode(record.rData.exchange);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-preference=\"" + htmlEncode(record.rData.preference) + "\" " +
                 "data-record-exchange=\"" + htmlEncode(record.rData.exchange) + "\" ";
             break;
 
         case "TXT":
-            tableHtmlRow += "<td style=\"word-break: break-all;\">" + htmlEncode(record.rData.text);
+            var text;
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
+            if (record.rData.splitText) {
+                for (var i = 0; i < record.rData.characterStrings.length; i++) {
+                    var characterString = record.rData.characterStrings[i].replace(/\\/g, "\\\\").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
 
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
+                    tableHtmlRow += "\"" + htmlEncode(characterString.replace(/"/g, "\\\"")) + "\"<br />";
 
-            tableHtmlRow += "</td>";
+                    if (text == null)
+                        text = characterString;
+                    else
+                        text += "\n" + characterString;
+                }
+            }
+            else {
+                var characterString = record.rData.text.replace(/\\/g, "\\\\").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+                tableHtmlRow += htmlEncode(characterString.replace(/"/g, "\\\"")) + "<br />";
 
-            additionalDataAttributes = "data-record-text=\"" + htmlEncode(record.rData.text) + "\" ";
+                text = record.rData.text;
+            }
+
+            tableHtmlRow += "<br />";
+
+            additionalDataAttributes = "data-record-text=\"" + htmlEncode(text) + "\" " +
+                "data-record-split-text=\"" + htmlEncode(record.rData.splitText) + "\" ";
+            break;
+
+        case "RP":
+            tableHtmlRow += "<b>Mailbox: </b> " + htmlEncode(record.rData.mailbox) +
+                "<br /><b>TXT Domain:</b> " + htmlEncode(record.rData.txtDomain);
+
+            tableHtmlRow += "<br /><br />";
+
+            additionalDataAttributes = "data-record-mailbox=\"" + htmlEncode(record.rData.mailbox) + "\" " +
+                "data-record-txt-domain=\"" + htmlEncode(record.rData.txtDomain) + "\" ";
             break;
 
         case "SRV":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Priority: </b> " + htmlEncode(record.rData.priority) +
+            tableHtmlRow += "<b>Priority: </b> " + htmlEncode(record.rData.priority) +
                 "<br /><b>Weight:</b> " + htmlEncode(record.rData.weight) +
                 "<br /><b>Port:</b> " + htmlEncode(record.rData.port) +
                 "<br /><b>Target:</b> " + htmlEncode(record.rData.target);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-priority=\"" + htmlEncode(record.rData.priority) + "\" " +
                 "data-record-weight=\"" + htmlEncode(record.rData.weight) + "\" " +
@@ -2278,31 +3182,53 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                 "data-record-target=\"" + htmlEncode(record.rData.target) + "\" ";
             break;
 
+        case "NAPTR":
+            tableHtmlRow += "<b>Order: </b> " + htmlEncode(record.rData.order) +
+                "<br /><b>Preference:</b> " + htmlEncode(record.rData.preference) +
+                "<br /><b>Flags:</b> " + htmlEncode(record.rData.flags) +
+                "<br /><b>Services:</b> " + htmlEncode(record.rData.services) +
+                "<br /><b>Regular Expression:</b> " + htmlEncode(record.rData.regexp) +
+                "<br /><b>Replacement:</b> " + htmlEncode(record.rData.replacement);
+
+            tableHtmlRow += "<br /><br />";
+
+            additionalDataAttributes = "data-record-order=\"" + htmlEncode(record.rData.order) + "\" " +
+                "data-record-preference=\"" + htmlEncode(record.rData.preference) + "\" " +
+                "data-record-flags=\"" + htmlEncode(record.rData.flags) + "\" " +
+                "data-record-services=\"" + htmlEncode(record.rData.services) + "\" " +
+                "data-record-regexp=\"" + htmlEncode(record.rData.regexp) + "\" " +
+                "data-record-replacement=\"" + htmlEncode(record.rData.replacement) + "\" ";
+            break;
+
         case "DNAME":
-            tableHtmlRow += "<td style=\"word-break: break-all;\">" + htmlEncode(record.rData.dname);
-
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += htmlEncode(record.rData.dname);
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-dname=\"" + htmlEncode(record.rData.dname) + "\" ";
             break;
 
+        case "APL":
+            tableHtmlRow += "<table class=\"table\" style=\"background: transparent;\"><thead><tr><th>Family</th><th>Negation</th><th>AFD Part</th><th>Prefix</th></tr></thead><tbody>";
+
+            for (var i = 0; i < record.rData.addressPrefixes.length; i++) {
+                tableHtmlRow += "<tr><td>" + record.rData.addressPrefixes[i].addressFamily + "</td>";
+                tableHtmlRow += "<td>" + record.rData.addressPrefixes[i].negation + "</td>";
+                tableHtmlRow += "<td>" + record.rData.addressPrefixes[i].afdPart + "</td>";
+                tableHtmlRow += "<td>" + record.rData.addressPrefixes[i].prefix + "</td></tr>";
+            }
+
+            tableHtmlRow += "</tbody></table>";
+
+            additionalDataAttributes = "";
+            break;
+
         case "DS":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Key Tag: </b> " + htmlEncode(record.rData.keyTag) +
+            tableHtmlRow += "<b>Key Tag: </b> " + htmlEncode(record.rData.keyTag) +
                 "<br /><b>Algorithm:</b> " + htmlEncode(record.rData.algorithm) +
                 "<br /><b>Digest Type:</b> " + htmlEncode(record.rData.digestType) +
                 "<br /><b>Digest:</b> " + htmlEncode(record.rData.digest);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-key-tag=\"" + htmlEncode(record.rData.keyTag) + "\" " +
                 "data-record-algorithm=\"" + htmlEncode(record.rData.algorithm) + "\" " +
@@ -2311,16 +3237,11 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
             break;
 
         case "SSHFP":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Algorithm:</b> " + htmlEncode(record.rData.algorithm) +
+            tableHtmlRow += "<b>Algorithm:</b> " + htmlEncode(record.rData.algorithm) +
                 "<br /><b>Fingerprint Type:</b> " + htmlEncode(record.rData.fingerprintType) +
                 "<br /><b>Fingerprint:</b> " + htmlEncode(record.rData.fingerprint);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-algorithm=\"" + htmlEncode(record.rData.algorithm) + "\" " +
                 "data-record-fingerprint-type=\"" + htmlEncode(record.rData.fingerprintType) + "\" " +
@@ -2328,7 +3249,7 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
             break;
 
         case "RRSIG":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Type Covered: </b> " + htmlEncode(record.rData.typeCovered) +
+            tableHtmlRow += "<b>Type Covered: </b> " + htmlEncode(record.rData.typeCovered) +
                 "<br /><b>Algorithm:</b> " + htmlEncode(record.rData.algorithm) +
                 "<br /><b>Labels:</b> " + htmlEncode(record.rData.labels) +
                 "<br /><b>Original TTL:</b> " + htmlEncode(record.rData.originalTtl) +
@@ -2338,12 +3259,7 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                 "<br /><b>Signer's Name:</b> " + htmlEncode(record.rData.signersName) +
                 "<br /><b>Signature:</b> " + htmlEncode(record.rData.signature);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "";
             break;
@@ -2358,21 +3274,16 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                     nsecTypes += ", " + record.rData.types[j];
             }
 
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Next Domain Name: </b> " + htmlEncode(record.rData.nextDomainName) +
+            tableHtmlRow += "<b>Next Domain Name: </b> " + htmlEncode(record.rData.nextDomainName) +
                 "<br /><b>Types:</b> " + htmlEncode(nsecTypes);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "";
             break;
 
         case "DNSKEY":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Flags: </b> " + htmlEncode(record.rData.flags) +
+            tableHtmlRow += "<b>Flags: </b> " + htmlEncode(record.rData.flags) +
                 "<br /><b>Protocol:</b> " + htmlEncode(record.rData.protocol) +
                 "<br /><b>Algorithm:</b> " + htmlEncode(record.rData.algorithm) +
                 "<br /><b>Public Key:</b> " + htmlEncode(record.rData.publicKey);
@@ -2397,12 +3308,7 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                 }
             }
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "";
             break;
@@ -2417,56 +3323,52 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                     nsec3Types += ", " + record.rData.types[j];
             }
 
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Hash Algorithm: </b> " + htmlEncode(record.rData.hashAlgorithm) +
+            tableHtmlRow += "<b>Hash Algorithm: </b> " + htmlEncode(record.rData.hashAlgorithm) +
                 "<br /><b>Flags: </b> " + htmlEncode(record.rData.flags) +
                 "<br /><b>Iterations: </b> " + htmlEncode(record.rData.iterations) +
                 "<br /><b>Salt: </b>" + htmlEncode(record.rData.salt) +
                 "<br /><b>Next Hashed Owner Name: </b> " + htmlEncode(record.rData.nextHashedOwnerName) +
                 "<br /><b>Types:</b> " + htmlEncode(nsec3Types);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "";
             break;
 
         case "NSEC3PARAM":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Hash Algorithm: </b> " + htmlEncode(record.rData.hashAlgorithm) +
+            tableHtmlRow += "<b>Hash Algorithm: </b> " + htmlEncode(record.rData.hashAlgorithm) +
                 "<br /><b>Flags: </b> " + htmlEncode(record.rData.flags) +
                 "<br /><b>Iterations: </b> " + htmlEncode(record.rData.iterations) +
                 "<br /><b>Salt: </b>" + htmlEncode(record.rData.salt);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "";
             break;
 
         case "TLSA":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Certificate Usage: </b> " + htmlEncode(record.rData.certificateUsage) +
+            tableHtmlRow += "<b>Certificate Usage: </b> " + htmlEncode(record.rData.certificateUsage) +
                 "<br /><b>Selector: </b> " + htmlEncode(record.rData.selector) +
                 "<br /><b>Matching Type: </b> " + htmlEncode(record.rData.matchingType) +
                 "<br /><b>Certificate Association Data:</b> " + (record.rData.certificateAssociationData == "" ? "<br />" : "<pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.rData.certificateAssociationData) + "</pre>");
 
-            tableHtmlRow += "<br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br />";
 
             additionalDataAttributes = "data-record-certificate-usage=\"" + htmlEncode(record.rData.certificateUsage) + "\" " +
                 "data-record-selector=\"" + htmlEncode(record.rData.selector) + "\" " +
                 "data-record-matching-type=\"" + htmlEncode(record.rData.matchingType) + "\" " +
                 "data-record-certificate-association-data=\"" + htmlEncode(record.rData.certificateAssociationData) + "\" ";
+            break;
+
+        case "ZONEMD":
+            tableHtmlRow += "<b>Serial: </b> " + htmlEncode(record.rData.serial) +
+                "<br /><b>Scheme: </b> " + htmlEncode(record.rData.scheme) +
+                "<br /><b>Hash Algorithm: </b> " + htmlEncode(record.rData.hashAlgorithm) +
+                "<br /><b>Digest:</b> " + record.rData.digest;
+
+            tableHtmlRow += "<br /><br />";
+
+            additionalDataAttributes = "";
             break;
 
         case "SVCB":
@@ -2485,39 +3387,48 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                     "<tbody>";
 
                 for (var paramKey in record.rData.svcParams) {
+                    switch (paramKey) {
+                        case "ipv4hint":
+                            if (record.rData.autoIpv4Hint)
+                                continue;
+
+                            break;
+
+                        case "ipv6hint":
+                            if (record.rData.autoIpv6Hint)
+                                continue;
+
+                            break;
+                    }
+
                     tableHtmlSvcParams += "<tr><td>" + htmlEncode(paramKey) + "</td><td>" + htmlEncode(record.rData.svcParams[paramKey]) + "</td></tr>";
                 }
 
                 tableHtmlSvcParams += "</tbody></table>";
             }
 
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Priority: </b> " + htmlEncode(record.rData.svcPriority) + (record.rData.svcPriority == 0 ? " (alias mode)" : " (service mode)") +
+            tableHtmlRow += "<b>Priority: </b> " + htmlEncode(record.rData.svcPriority) + (record.rData.svcPriority == 0 ? " (alias mode)" : " (service mode)") +
                 "<br /><b>Target Name: </b> " + (record.rData.svcTargetName == "" ? "." : htmlEncode(record.rData.svcTargetName)) +
-                tableHtmlSvcParams;
+                tableHtmlSvcParams +
+                "<br /><b>Use Automatic IPv4 Hint: </b> " + record.rData.autoIpv4Hint +
+                "<br /><b>Use Automatic IPv6 Hint: </b> " + record.rData.autoIpv6Hint +
+                "<br />";
 
-            tableHtmlRow += "<br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br />";
 
             additionalDataAttributes = "data-record-svc-priority=\"" + htmlEncode(record.rData.svcPriority) + "\"" +
                 "data-record-svc-target-name=\"" + (record.rData.svcTargetName == "" ? "." : htmlEncode(record.rData.svcTargetName)) + "\"" +
-                "data-record-svc-params=\"" + htmlEncode(JSON.stringify(record.rData.svcParams)) + "\"";
+                "data-record-svc-params=\"" + htmlEncode(JSON.stringify(record.rData.svcParams)) + "\"" +
+                "data-record-auto-ipv4hint=\"" + htmlEncode(record.rData.autoIpv4Hint) + "\"" +
+                "data-record-auto-ipv6hint=\"" + htmlEncode(record.rData.autoIpv6Hint) + "\"";
             break;
 
         case "URI":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Priority: </b> " + htmlEncode(record.rData.priority) +
+            tableHtmlRow += "<b>Priority: </b> " + htmlEncode(record.rData.priority) +
                 "<br /><b>Weight:</b> " + htmlEncode(record.rData.weight) +
                 "<br /><b>URI:</b> " + htmlEncode(record.rData.uri);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-priority=\"" + htmlEncode(record.rData.priority) + "\" " +
                 "data-record-weight=\"" + htmlEncode(record.rData.weight) + "\" " +
@@ -2525,16 +3436,11 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
             break;
 
         case "CAA":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Flags: </b> " + htmlEncode(record.rData.flags) +
+            tableHtmlRow += "<b>Flags: </b> " + htmlEncode(record.rData.flags) +
                 "<br /><b>Tag:</b> " + htmlEncode(record.rData.tag) +
                 "<br /><b>Authority:</b> " + htmlEncode(record.rData.value);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-flags=\"" + htmlEncode(record.rData.flags) + "\" " +
                 "data-record-tag=\"" + htmlEncode(record.rData.tag) + "\" " +
@@ -2542,21 +3448,16 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
             break;
 
         case "ANAME":
-            tableHtmlRow += "<td style=\"word-break: break-all;\">" + htmlEncode(record.rData.aname);
-
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "" + htmlEncode(record.rData.aname);
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-aname=\"" + htmlEncode(record.rData.aname) + "\" ";
             break;
 
         case "FWD":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Protocol: </b> " + htmlEncode(record.rData.protocol) +
+            tableHtmlRow += "<b>Protocol: </b> " + htmlEncode(record.rData.protocol) +
                 "<br /><b>Forwarder:</b> " + htmlEncode(record.rData.forwarder) +
+                "<br /><b>Priority:</b> " + htmlEncode(record.rData.priority) +
                 "<br /><b>Enable DNSSEC Validation:</b> " + htmlEncode(record.rData.dnssecValidation) +
                 "<br /><b>Proxy Type:</b> " + htmlEncode(record.rData.proxyType);
 
@@ -2570,15 +3471,11 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                     break;
             }
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-protocol=\"" + htmlEncode(record.rData.protocol) + "\" " +
                 "data-record-forwarder=\"" + htmlEncode(record.rData.forwarder) + "\" " +
+                "data-record-priority=\"" + htmlEncode(record.rData.priority) + "\" " +
                 "data-record-dnssec-validation=\"" + htmlEncode(record.rData.dnssecValidation) + "\" " +
                 "data-record-proxy-type=\"" + htmlEncode(record.rData.proxyType) + "\" ";
 
@@ -2594,16 +3491,11 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
             break;
 
         case "APP":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>App Name: </b> " + htmlEncode(record.rData.appName) +
+            tableHtmlRow += "<b>App Name: </b> " + htmlEncode(record.rData.appName) +
                 "<br /><b>Class Path:</b> " + htmlEncode(record.rData.classPath) +
                 "<br /><b>Record Data:</b> " + (record.rData.data == "" ? "<br />" : "<pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.rData.data) + "</pre>");
 
-            tableHtmlRow += "<br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br />";
 
             additionalDataAttributes = "data-record-app-name=\"" + htmlEncode(record.rData.appName) + "\" " +
                 "data-record-classpath=\"" + htmlEncode(record.rData.classPath) + "\" " +
@@ -2611,40 +3503,57 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
             break;
 
         case "ALIAS":
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>Type: </b> " + htmlEncode(record.rData.type) +
+            tableHtmlRow += "<b>Type: </b> " + htmlEncode(record.rData.type) +
                 "<br /><b>Alias:</b> " + htmlEncode(record.rData.alias);
 
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<br /><br />";
             break;
 
         default:
-            tableHtmlRow += "<td style=\"word-break: break-all;\"><b>RDATA:</b> " + htmlEncode(record.rData.value);
-
-            tableHtmlRow += "<br /><br /><b>Last Used:</b> " + lastUsedOn;
-
-            if ((record.comments != null) && (record.comments.length > 0))
-                tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
-
-            tableHtmlRow += "</td>";
+            tableHtmlRow += "<b>RDATA:</b> " + htmlEncode(record.rData.value);
+            tableHtmlRow += "<br /><br />";
 
             additionalDataAttributes = "data-record-rdata=\"" + htmlEncode(record.rData.value) + "\"";
             break;
     }
+
+    if (record.expiryTtl > 0) {
+        var expiresOn = moment(record.lastModified).add(record.expiryTtl, "s");
+        tableHtmlRow += "<b>Expiry TTL:</b> " + record.expiryTtl;
+        tableHtmlRow += "<br /><b>Expires On:</b> " + expiresOn.local().format("YYYY-MM-DD HH:mm:ss") + " (" + expiresOn.fromNow() + ")";
+        tableHtmlRow += "<br />";
+    }
+
+    var lastUsedOn;
+
+    if (record.lastUsedOn == "0001-01-01T00:00:00")
+        lastUsedOn = moment(record.lastUsedOn).local().format("YYYY-MM-DD HH:mm:ss") + " (never)";
+    else
+        lastUsedOn = moment(record.lastUsedOn).local().format("YYYY-MM-DD HH:mm:ss") + " (" + moment(record.lastUsedOn).fromNow() + ")";
+
+    tableHtmlRow += "<b>Last Used:</b> " + lastUsedOn;
+
+    if ((record.lastModified != "0001-01-01T00:00:00") && (record.lastModified != "0001-01-01T00:00:00Z"))
+        tableHtmlRow += "<br /><b>Last Modified:</b> " + moment(record.lastModified).local().format("YYYY-MM-DD HH:mm:ss") + " (" + moment(record.lastModified).fromNow() + ")";;
+
+    if ((record.comments != null) && (record.comments.length > 0))
+        tableHtmlRow += "<br /><b>Comments:</b> <pre style=\"white-space: pre-wrap;\">" + htmlEncode(record.comments) + "</pre>";
+
+    tableHtmlRow += "</td>";
 
     var hideActionButtons = false;
     var disableEnableDisableDeleteButtons = false;
 
     switch (zoneType) {
         case "Internal":
+        case "Secondary":
+        case "SecondaryForwarder":
+        case "SecondaryCatalog":
+        case "Stub":
             hideActionButtons = true;
             break;
 
-        case "Secondary":
+        case "Catalog":
             switch (record.type) {
                 case "SOA":
                     disableEnableDisableDeleteButtons = true;
@@ -2652,20 +3561,6 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
 
                 default:
                     hideActionButtons = true;
-                    break;
-            }
-            break;
-
-        case "Stub":
-            switch (record.type) {
-                case "SOA":
-                    disableEnableDisableDeleteButtons = true;
-                    break;
-
-                case "NS":
-                    if (name == "@")
-                        hideActionButtons = true;
-
                     break;
             }
             break;
@@ -2681,6 +3576,7 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
                 case "NSEC":
                 case "NSEC3":
                 case "NSEC3PARAM":
+                case "ZONEMD":
                     hideActionButtons = true;
                     break;
             }
@@ -2692,7 +3588,7 @@ function getZoneRecordRowHtml(index, zone, zoneType, record) {
     }
     else {
         tableHtmlRow += "<td align=\"right\" style=\"min-width: 220px;\">";
-        tableHtmlRow += "<div id=\"data" + index + "\" data-record-name=\"" + htmlEncode(record.name) + "\" data-record-type=\"" + record.type + "\" data-record-ttl=\"" + record.ttl + "\" " + additionalDataAttributes + " data-record-disabled=\"" + record.disabled + "\" data-record-comments=\"" + htmlEncode(record.comments) + "\" style=\"display: none;\"></div>";
+        tableHtmlRow += "<div id=\"data" + index + "\" data-record-name=\"" + htmlEncode(record.name) + "\" data-record-type=\"" + record.type + "\" data-record-ttl=\"" + record.ttl + "\" " + additionalDataAttributes + " data-record-disabled=\"" + record.disabled + "\" data-record-comments=\"" + htmlEncode(record.comments) + "\" data-record-expiry-ttl=\"" + record.expiryTtl + "\" style=\"display: none;\"></div>";
         tableHtmlRow += "<button type=\"button\" class=\"btn btn-primary\" style=\"font-size: 12px; padding: 2px 0px; width: 60px; margin: 0 6px 0 0;\" data-id=\"" + index + "\" onclick=\"showEditRecordModal(this);\">Edit</button>";
         tableHtmlRow += "<button type=\"button\" class=\"btn btn-default\" id=\"btnEnableRecord" + index + "\" style=\"font-size: 12px; padding: 2px 0px; width: 60px; margin: 0 6px 0 0;" + (record.disabled ? "" : " display: none;") + "\" data-id=\"" + index + "\" onclick=\"updateRecordState(this, false);\"" + (disableEnableDisableDeleteButtons ? " disabled" : "") + " data-loading-text=\"Enabling...\">Enable</button>";
         tableHtmlRow += "<button type=\"button\" class=\"btn btn-warning\" id=\"btnDisableRecord" + index + "\" style=\"font-size: 12px; padding: 2px 0px; width: 60px; margin: 0 6px 0 0;" + (!record.disabled ? "" : " display: none;") + "\" data-id=\"" + index + "\" onclick=\"updateRecordState(this, true);\"" + (disableEnableDisableDeleteButtons ? " disabled" : "") + " data-loading-text=\"Disabling...\">Disable</button>";
@@ -2711,7 +3607,6 @@ function clearAddEditRecordForm() {
     $("#txtAddEditRecordName").prop("disabled", false);
     $("#optAddEditRecordType").prop("disabled", false);
     $("#txtAddEditRecordTtl").prop("disabled", false);
-    $("#divAddEditRecordTtl").show();
 
     $("#txtAddEditRecordName").val("");
     $("#optAddEditRecordType").val("A");
@@ -2754,11 +3649,23 @@ function clearAddEditRecordForm() {
     $("#txtAddEditRecordDataMxPreference").val("");
     $("#txtAddEditRecordDataMxExchange").val("");
 
+    $("#divAddEditRecordDataTxt").hide();
+    $("#txtAddEditRecordDataTxt").val("");
+    $("#chkAddEditRecordDataTxtSplitText").prop("checked", false);
+
     $("#divAddEditRecordDataSrv").hide();
     $("#txtAddEditRecordDataSrvPriority").val("");
     $("#txtAddEditRecordDataSrvWeight").val("");
     $("#txtAddEditRecordDataSrvPort").val("");
     $("#txtAddEditRecordDataSrvTarget").val("");
+
+    $("#divAddEditRecordDataNaptr").hide();
+    $("#txtAddEditRecordDataNaptrOrder").val("");
+    $("#txtAddEditRecordDataNaptrPreference").val("");
+    $("#txtAddEditRecordDataNaptrFlags").val("");
+    $("#txtAddEditRecordDataNaptrServices").val("");
+    $("#txtAddEditRecordDataNaptrRegExp").val("");
+    $("#txtAddEditRecordDataNaptrReplacement").val("");
 
     $("#divAddEditRecordDataDs").hide();
     $("#txtAddEditRecordDataDsKeyTag").val("");
@@ -2781,6 +3688,8 @@ function clearAddEditRecordForm() {
     $("#txtAddEditRecordDataSvcbPriority").val("");
     $("#txtAddEditRecordDataSvcbTargetName").val("");
     $("#tableAddEditRecordDataSvcbParams").html("");
+    $("#chkAddEditRecordDataSvcbAutoIpv4Hint").prop("checked", false);
+    $("#chkAddEditRecordDataSvcbAutoIpv6Hint").prop("checked", false);
 
     $("#divAddEditRecordDataUri").hide();
     $("#txtAddEditRecordDataUriPriority").val("");
@@ -2799,6 +3708,7 @@ function clearAddEditRecordForm() {
     $('#txtAddEditRecordDataForwarder').prop('disabled', false);
     $("#txtAddEditRecordDataForwarder").attr("placeholder", "8.8.8.8 or [2620:fe::10]")
     $("#txtAddEditRecordDataForwarder").val("");
+    $("#txtAddEditRecordDataForwarderPriority").val("");
     $("#chkAddEditRecordDataForwarderDnssecValidation").prop("checked", $("#chkDnssecValidation").prop("checked"));
     $("#rdAddEditRecordDataForwarderProxyTypeDefaultProxy").prop("checked", true);
     $("#txtAddEditRecordDataForwarderProxyAddress").prop("disabled", true);
@@ -2821,6 +3731,9 @@ function clearAddEditRecordForm() {
     $("#chkAddEditRecordOverwrite").prop("checked", false);
 
     $("#txtAddEditRecordComments").val("");
+
+    $("#divAddEditRecordExpiryTtl").show();
+    $("#txtAddEditRecordExpiryTtl").val("");
 
     $("#btnAddEditRecord").button("reset");
 }
@@ -2904,7 +3817,8 @@ function modifyAddRecordFormByType(addMode) {
     $("#divAddEditRecordAlert").html("");
 
     $("#txtAddEditRecordName").prop("placeholder", "@");
-    $("#divAddEditRecordTtl").show();
+    $("#txtAddEditRecordTtl").prop("disabled", false);
+    $("#txtAddEditRecordTtl").val("");
     $("#txtAddEditRecordDataValue").attr("placeholder", "");
 
     var type = $("#optAddEditRecordType").val();
@@ -2915,7 +3829,10 @@ function modifyAddRecordFormByType(addMode) {
     $("#divAddEditRecordDataNs").hide();
     $("#divEditRecordDataSoa").hide();
     $("#divAddEditRecordDataMx").hide();
+    $("#divAddEditRecordDataTxt").hide();
+    $("#divAddEditRecordDataRp").hide();
     $("#divAddEditRecordDataSrv").hide();
+    $("#divAddEditRecordDataNaptr").hide();
     $("#divAddEditRecordDataDs").hide();
     $("#divAddEditRecordDataSshfp").hide();
     $("#divAddEditRecordDataTlsa").hide();
@@ -2962,9 +3879,6 @@ function modifyAddRecordFormByType(addMode) {
             $("#txtEditRecordDataSoaRetry").val("");
             $("#txtEditRecordDataSoaExpire").val("");
             $("#txtEditRecordDataSoaMinimum").val("");
-            $("#txtEditRecordDataSoaPrimaryAddresses").val("");
-            $("#rdEditRecordDataSoaZoneTransferProtocolTcp").prop("checked", true);
-            $("#optEditRecordDataSoaTsigKeyName").val("");
             $("#divEditRecordDataSoa").show();
             break;
 
@@ -2984,9 +3898,15 @@ function modifyAddRecordFormByType(addMode) {
             break;
 
         case "TXT":
-            $("#lblAddEditRecordDataValue").text("Text Data");
-            $("#txtAddEditRecordDataValue").val("");
-            $("#divAddEditRecordData").show();
+            $("#txtAddEditRecordDataTxt").val("");
+            $("#chkAddEditRecordDataTxtSplitText").prop("checked", false);
+            $("#divAddEditRecordDataTxt").show();
+            break;
+
+        case "RP":
+            $("#txtAddEditRecordDataRpMailbox").val("");
+            $("#txtAddEditRecordDataRpTxtDomain").val("");
+            $("#divAddEditRecordDataRp").show();
             break;
 
         case "SRV":
@@ -2996,6 +3916,16 @@ function modifyAddRecordFormByType(addMode) {
             $("#txtAddEditRecordDataSrvPort").val("");
             $("#txtAddEditRecordDataSrvTarget").val("");
             $("#divAddEditRecordDataSrv").show();
+            break;
+
+        case "NAPTR":
+            $("#txtAddEditRecordDataNaptrOrder").val("");
+            $("#txtAddEditRecordDataNaptrPreference").val("");
+            $("#txtAddEditRecordDataNaptrFlags").val("");
+            $("#txtAddEditRecordDataNaptrServices").val("");
+            $("#txtAddEditRecordDataNaptrRegExp").val("");
+            $("#txtAddEditRecordDataNaptrReplacement").val("");
+            $("#divAddEditRecordDataNaptr").show();
             break;
 
         case "DS":
@@ -3028,6 +3958,8 @@ function modifyAddRecordFormByType(addMode) {
             $("#txtAddEditRecordDataSvcbPriority").val("");
             $("#txtAddEditRecordDataSvcbTargetName").val("");
             $("#tableAddEditRecordDataSvcbParams").html("");
+            $("#chkAddEditRecordDataSvcbAutoIpv4Hint").prop("checked", false);
+            $("#chkAddEditRecordDataSvcbAutoIpv6Hint").prop("checked", false);
             $("#divAddEditRecordDataSvcb").show();
             break;
 
@@ -3046,12 +3978,14 @@ function modifyAddRecordFormByType(addMode) {
             break;
 
         case "FWD":
-            $("#divAddEditRecordTtl").hide();
+            $("#txtAddEditRecordTtl").prop("disabled", true);
+            $("#txtAddEditRecordTtl").val("0");
             $("input[name=rdAddEditRecordDataForwarderProtocol]:radio").attr("disabled", false);
             $("#rdAddEditRecordDataForwarderProtocolUdp").prop("checked", true);
             $("#chkAddEditRecordDataForwarderThisServer").prop("checked", false);
-            $('#txtAddEditRecordDataForwarder').prop('disabled', false);
+            $("#txtAddEditRecordDataForwarder").prop("disabled", false);
             $("#txtAddEditRecordDataForwarder").val("");
+            $("#txtAddEditRecordDataForwarderPriority").val("");
             $("#chkAddEditRecordDataForwarderDnssecValidation").prop("checked", $("#chkDnssecValidation").prop("checked"));
             $("#rdAddEditRecordDataForwarderProxyTypeDefaultProxy").prop("checked", true);
             $("#txtAddEditRecordDataForwarderProxyAddress").prop("disabled", true);
@@ -3089,6 +4023,24 @@ function modifyAddRecordFormByType(addMode) {
     }
 }
 
+function zoneHasSvcbAutoHint(ipv4, ipv6) {
+    if (editZoneRecords == null)
+        return true;
+
+    for (var i = 0; i < editZoneRecords.length; i++) {
+        switch (editZoneRecords[i].type) {
+            case "SVCB":
+            case "HTTPS":
+                if ((editZoneRecords[i].rData.autoIpv4Hint && ipv4) || (editZoneRecords[i].rData.autoIpv6Hint && ipv6))
+                    return true;
+
+                break;
+        }
+    }
+
+    return false;
+}
+
 function addRecord() {
     var btn = $("#btnAddEditRecord");
     var divAddEditRecordAlert = $("#divAddEditRecordAlert");
@@ -3114,6 +4066,7 @@ function addRecord() {
     var ttl = $("#txtAddEditRecordTtl").val();
     var overwrite = $("#chkAddEditRecordOverwrite").prop("checked");
     var comments = $("#txtAddEditRecordComments").val();
+    var expiryTtl = $("#txtAddEditRecordExpiryTtl").val();
 
     var apiUrl = "";
 
@@ -3127,7 +4080,9 @@ function addRecord() {
                 return;
             }
 
-            apiUrl += "&ipAddress=" + encodeURIComponent(ipAddress) + "&ptr=" + $("#chkAddEditRecordDataPtr").prop('checked') + "&createPtrZone=" + $("#chkAddEditRecordDataCreatePtrZone").prop('checked');
+            var updateSvcbHints = zoneHasSvcbAutoHint(type == "A", type == "AAAA");
+
+            apiUrl += "&ipAddress=" + encodeURIComponent(ipAddress) + "&ptr=" + $("#chkAddEditRecordDataPtr").prop('checked') + "&createPtrZone=" + $("#chkAddEditRecordDataCreatePtrZone").prop('checked') + "&updateSvcbHints=" + updateSvcbHints;
             break;
 
         case "NS":
@@ -3146,7 +4101,7 @@ function addRecord() {
         case "CNAME":
             var subDomainName = $("#txtAddEditRecordName").val();
             if ((subDomainName === "") || (subDomainName === "@")) {
-                showAlert("warning", "Missing!", "Please enter a name for the CNAME record.", divAddEditRecordAlert);
+                showAlert("warning", "Missing!", "Please enter a name for the CNAME record since DNS protocol does not allow CNAME at zone's apex. If you need CNAME like function at the zone's apex then use ANAME record instead.", divAddEditRecordAlert);
                 $("#txtAddEditRecordName").focus();
                 return;
             }
@@ -3188,14 +4143,28 @@ function addRecord() {
             break;
 
         case "TXT":
-            var text = $("#txtAddEditRecordDataValue").val();
+            var text = $("#txtAddEditRecordDataTxt").val();
             if (text === "") {
                 showAlert("warning", "Missing!", "Please enter a suitable value to add the record.", divAddEditRecordAlert);
-                $("#txtAddEditRecordDataValue").focus();
+                $("#txtAddEditRecordDataTxt").focus();
                 return;
             }
 
-            apiUrl += "&text=" + encodeURIComponent(text);
+            var splitText = $("#chkAddEditRecordDataTxtSplitText").prop("checked");
+
+            apiUrl += "&text=" + encodeURIComponent(text) + "&splitText=" + splitText;
+            break;
+
+        case "RP":
+            var mailbox = $("#txtAddEditRecordDataRpMailbox").val();
+            if (mailbox === "")
+                mailbox = ".";
+
+            var txtDomain = $("#txtAddEditRecordDataRpTxtDomain").val();
+            if (txtDomain === "")
+                txtDomain = ".";
+
+            apiUrl += "&mailbox=" + encodeURIComponent(mailbox) + "&txtDomain=" + encodeURIComponent(txtDomain);
             break;
 
         case "SRV":
@@ -3234,6 +4203,29 @@ function addRecord() {
             }
 
             apiUrl += "&priority=" + priority + "&weight=" + weight + "&port=" + port + "&target=" + encodeURIComponent(target);
+            break;
+
+        case "NAPTR":
+            var order = $("#txtAddEditRecordDataNaptrOrder").val();
+            if (order === "") {
+                showAlert("warning", "Missing!", "Please enter a suitable order.", divAddEditRecordAlert);
+                $("#txtAddEditRecordDataNaptrOrder").focus();
+                return;
+            }
+
+            var preference = $("#txtAddEditRecordDataNaptrPreference").val();
+            if (preference === "") {
+                showAlert("warning", "Missing!", "Please enter a suitable preference.", divAddEditRecordAlert);
+                $("#txtAddEditRecordDataNaptrPreference").focus();
+                return;
+            }
+
+            var flags = $("#txtAddEditRecordDataNaptrFlags").val();
+            var services = $("#txtAddEditRecordDataNaptrServices").val();
+            var regexp = $("#txtAddEditRecordDataNaptrRegExp").val();
+            var replacement = $("#txtAddEditRecordDataNaptrReplacement").val();
+
+            apiUrl += "&naptrOrder=" + order + "&naptrPreference=" + preference + "&naptrFlags=" + encodeURIComponent(flags) + "&naptrServices=" + encodeURIComponent(services) + "&naptrRegexp=" + encodeURIComponent(regexp) + "&naptrReplacement=" + encodeURIComponent(replacement);
             break;
 
         case "DNAME":
@@ -3372,7 +4364,10 @@ function addRecord() {
             if (svcParams.length === 0)
                 svcParams = false;
 
-            apiUrl += "&svcPriority=" + svcPriority + "&svcTargetName=" + encodeURIComponent(svcTargetName) + "&svcParams=" + encodeURIComponent(svcParams);
+            var autoIpv4Hint = $("#chkAddEditRecordDataSvcbAutoIpv4Hint").prop("checked");
+            var autoIpv6Hint = $("#chkAddEditRecordDataSvcbAutoIpv6Hint").prop("checked");
+
+            apiUrl += "&svcPriority=" + svcPriority + "&svcTargetName=" + encodeURIComponent(svcTargetName) + "&svcParams=" + encodeURIComponent(svcParams) + "&autoIpv4Hint=" + autoIpv4Hint + "&autoIpv6Hint=" + autoIpv6Hint;
             break;
 
         case "URI":
@@ -3438,11 +4433,12 @@ function addRecord() {
                 return;
             }
 
+            var forwarderPriority = $("#txtAddEditRecordDataForwarderPriority").val();
             var dnssecValidation = $("#chkAddEditRecordDataForwarderDnssecValidation").prop("checked");
             var proxyType = $("input[name=rdAddEditRecordDataForwarderProxyType]:checked").val();
 
             apiUrl += "&protocol=" + $('input[name=rdAddEditRecordDataForwarderProtocol]:checked').val() + "&forwarder=" + encodeURIComponent(forwarder);
-            apiUrl += "&dnssecValidation=" + dnssecValidation + "&proxyType=" + proxyType;
+            apiUrl += "&forwarderPriority=" + forwarderPriority + "&dnssecValidation=" + dnssecValidation + "&proxyType=" + proxyType;
 
             switch (proxyType) {
                 case "Http":
@@ -3510,7 +4506,7 @@ function addRecord() {
             break;
     }
 
-    apiUrl = "/api/zones/records/add?token=" + sessionData.token + "&zone=" + encodeURIComponent(zone) + "&domain=" + encodeURIComponent(domain) + "&type=" + encodeURIComponent(type) + "&ttl=" + ttl + "&overwrite=" + overwrite + "&comments=" + encodeURIComponent(comments) + apiUrl;
+    apiUrl = "/api/zones/records/add?token=" + sessionData.token + "&zone=" + encodeURIComponent(zone) + "&domain=" + encodeURIComponent(domain) + "&type=" + encodeURIComponent(type) + "&ttl=" + ttl + "&overwrite=" + overwrite + "&comments=" + encodeURIComponent(comments) + "&expiryTtl=" + expiryTtl + apiUrl;
 
     btn.button("loading");
 
@@ -3636,6 +4632,7 @@ function showEditRecordModal(objBtn) {
     var type = divData.attr("data-record-type");
     var ttl = divData.attr("data-record-ttl");
     var comments = divData.attr("data-record-comments");
+    var expiryTtl = divData.attr("data-record-expiry-ttl");
 
     if (name === zone)
         name = "@";
@@ -3653,42 +4650,7 @@ function showEditRecordModal(objBtn) {
     $("#txtAddEditRecordName").val(name);
     $("#txtAddEditRecordTtl").val(ttl)
     $("#txtAddEditRecordComments").val(comments);
-
-    var disableSoaRecordModalFields = false;
-    var hideSoaRecordUseSerialDateSchemeField = false;
-    var hideSoaRecordPrimaryAddressesField = false;
-    var hideSoaRecordXfrAndTsigFields = false;
-
-    var zoneType = $("#titleEditZoneType").text();
-    switch (zoneType) {
-        case "Primary":
-            switch (type) {
-                case "SOA":
-                    hideSoaRecordPrimaryAddressesField = true;
-                    hideSoaRecordXfrAndTsigFields = true;
-                    break;
-            }
-            break;
-
-        case "Secondary":
-            switch (type) {
-                case "SOA":
-                    disableSoaRecordModalFields = true;
-                    hideSoaRecordUseSerialDateSchemeField = true;
-                    break;
-            }
-            break;
-
-        case "Stub":
-            switch (type) {
-                case "SOA":
-                    disableSoaRecordModalFields = true;
-                    hideSoaRecordUseSerialDateSchemeField = true;
-                    hideSoaRecordXfrAndTsigFields = true;
-                    break;
-            }
-            break;
-    }
+    $("#txtAddEditRecordExpiryTtl").val(expiryTtl);
 
     switch (type) {
         case "A":
@@ -3719,56 +4681,27 @@ function showEditRecordModal(objBtn) {
             $("#txtEditRecordDataSoaExpire").val(divData.attr("data-record-expire"));
             $("#txtEditRecordDataSoaMinimum").val(divData.attr("data-record-minimum"));
             $("#chkEditRecordDataSoaUseSerialDateScheme").prop("checked", divData.attr("data-record-serial-scheme") === "true");
-            $("#txtEditRecordDataSoaPrimaryAddresses").val(divData.attr("data-record-paddresses").replace(/, /g, "\n"));
-
-            switch (divData.attr("data-record-zonetransferprotocol").toLowerCase()) {
-                case "tls":
-                    $("#rdEditRecordDataSoaZoneTransferProtocolTls").prop("checked", true);
-                    break;
-
-                case "quic":
-                    $("#rdEditRecordDataSoaZoneTransferProtocolQuic").prop("checked", true);
-                    break;
-
-                case "tcp":
-                default:
-                    $("#rdEditRecordDataSoaZoneTransferProtocolTcp").prop("checked", true);
-                    break;
-            }
 
             $("#txtAddEditRecordName").prop("disabled", true);
+            $("#divAddEditRecordExpiryTtl").hide();
 
-            if (disableSoaRecordModalFields) {
-                $("#txtAddEditRecordTtl").prop("disabled", true);
+            switch ($("#titleEditZoneType").text()) {
+                case "Forwarder":
+                    $("#txtAddEditRecordTtl").prop("disabled", true);
+                    $("#txtEditRecordDataSoaResponsiblePerson").prop("disabled", true);
+                    break;
 
-                $("#txtEditRecordDataSoaPrimaryNameServer").prop("disabled", true);
-                $("#txtEditRecordDataSoaResponsiblePerson").prop("disabled", true);
-                $("#txtEditRecordDataSoaSerial").prop("disabled", true);
-                $("#txtEditRecordDataSoaRefresh").prop("disabled", true);
-                $("#txtEditRecordDataSoaRetry").prop("disabled", true);
-                $("#txtEditRecordDataSoaExpire").prop("disabled", true);
-                $("#txtEditRecordDataSoaMinimum").prop("disabled", true);
-            }
+                case "Catalog":
+                    $("#txtAddEditRecordTtl").prop("disabled", true);
+                    $("#txtEditRecordDataSoaPrimaryNameServer").prop("disabled", true);
+                    $("#txtEditRecordDataSoaResponsiblePerson").prop("disabled", true);
+                    break;
 
-            if (hideSoaRecordUseSerialDateSchemeField)
-                $("#divEditRecordDataSoaUseSerialDateScheme").hide();
-            else
-                $("#divEditRecordDataSoaUseSerialDateScheme").show();
-
-            if (hideSoaRecordPrimaryAddressesField) {
-                $("#divEditRecordDataSoaPrimaryAddresses").hide();
-            } else {
-                $("#divEditRecordDataSoaPrimaryAddresses").show();
-            }
-
-            if (hideSoaRecordXfrAndTsigFields) {
-                $("#divEditRecordDataSoaZoneTransferProtocol").hide();
-                $("#divEditRecordDataSoaTsigKeyName").hide();
-            } else {
-                $("#divEditRecordDataSoaZoneTransferProtocol").show();
-                $("#divEditRecordDataSoaTsigKeyName").show();
-
-                loadTsigKeyNames($("#optEditRecordDataSoaTsigKeyName"), divData.attr("data-record-tsigkeyname"), $("#divAddEditRecordAlert"));
+                default:
+                    $("#txtAddEditRecordTtl").prop("disabled", false);
+                    $("#txtEditRecordDataSoaPrimaryNameServer").prop("disabled", false);
+                    $("#txtEditRecordDataSoaResponsiblePerson").prop("disabled", false);
+                    break;
             }
 
             break;
@@ -3783,7 +4716,13 @@ function showEditRecordModal(objBtn) {
             break;
 
         case "TXT":
-            $("#txtAddEditRecordDataValue").val(divData.attr("data-record-text"));
+            $("#txtAddEditRecordDataTxt").val(divData.attr("data-record-text"));
+            $("#chkAddEditRecordDataTxtSplitText").prop("checked", divData.attr("data-record-split-text") === "true");
+            break;
+
+        case "RP":
+            $("#txtAddEditRecordDataRpMailbox").val(divData.attr("data-record-mailbox"));
+            $("#txtAddEditRecordDataRpTxtDomain").val(divData.attr("data-record-txt-domain"));
             break;
 
         case "SRV":
@@ -3791,6 +4730,15 @@ function showEditRecordModal(objBtn) {
             $("#txtAddEditRecordDataSrvWeight").val(divData.attr("data-record-weight"));
             $("#txtAddEditRecordDataSrvPort").val(divData.attr("data-record-port"));
             $("#txtAddEditRecordDataSrvTarget").val(divData.attr("data-record-target"));
+            break;
+
+        case "NAPTR":
+            $("#txtAddEditRecordDataNaptrOrder").val(divData.attr("data-record-order"));
+            $("#txtAddEditRecordDataNaptrPreference").val(divData.attr("data-record-preference"));
+            $("#txtAddEditRecordDataNaptrFlags").val(divData.attr("data-record-flags"));
+            $("#txtAddEditRecordDataNaptrServices").val(divData.attr("data-record-services"));
+            $("#txtAddEditRecordDataNaptrRegExp").val(divData.attr("data-record-regexp"));
+            $("#txtAddEditRecordDataNaptrReplacement").val(divData.attr("data-record-replacement"));
             break;
 
         case "DNAME":
@@ -3823,10 +4771,29 @@ function showEditRecordModal(objBtn) {
             $("#txtAddEditRecordDataSvcbTargetName").val(divData.attr("data-record-svc-target-name"));
 
             var svcParams = JSON.parse(divData.attr("data-record-svc-params"));
+            var autoIpv4Hint = divData.attr("data-record-auto-ipv4hint") === "true";
+            var autoIpv6Hint = divData.attr("data-record-auto-ipv6hint") === "true";
 
             for (var paramKey in svcParams) {
+                switch (paramKey) {
+                    case "ipv4hint":
+                        if (autoIpv4Hint)
+                            continue;
+
+                        break;
+
+                    case "ipv6hint":
+                        if (autoIpv6Hint)
+                            continue;
+
+                        break;
+                }
+
                 addSvcbRecordParamEditRow(paramKey, svcParams[paramKey]);
             }
+
+            $("#chkAddEditRecordDataSvcbAutoIpv4Hint").prop("checked", autoIpv4Hint);
+            $("#chkAddEditRecordDataSvcbAutoIpv6Hint").prop("checked", autoIpv6Hint);
             break;
 
         case "URI":
@@ -3846,7 +4813,7 @@ function showEditRecordModal(objBtn) {
             break;
 
         case "FWD":
-            $("#divAddEditRecordTtl").hide();
+            $("#txtAddEditRecordTtl").prop("disabled", true);
             $("#rdAddEditRecordDataForwarderProtocol" + divData.attr("data-record-protocol")).prop("checked", true);
 
             var forwarder = divData.attr("data-record-forwarder");
@@ -3864,6 +4831,7 @@ function showEditRecordModal(objBtn) {
                 $("#divAddEditRecordDataForwarderProxy").show();
             }
 
+            $("#txtAddEditRecordDataForwarderPriority").val(divData.attr("data-record-priority"));
             $("#chkAddEditRecordDataForwarderDnssecValidation").prop("checked", divData.attr("data-record-dnssec-validation") === "true");
 
             var proxyType = divData.attr("data-record-proxy-type");
@@ -3955,6 +4923,7 @@ function updateRecord() {
     var ttl = $("#txtAddEditRecordTtl").val();
     var disable = (divData.attr("data-record-disabled") === "true");
     var comments = $("#txtAddEditRecordComments").val();
+    var expiryTtl = $("#txtAddEditRecordExpiryTtl").val();
 
     var apiUrl = "";
 
@@ -3970,7 +4939,9 @@ function updateRecord() {
                 return;
             }
 
-            apiUrl += "&ipAddress=" + encodeURIComponent(ipAddress) + "&newIpAddress=" + encodeURIComponent(newIpAddress) + "&ptr=" + $("#chkAddEditRecordDataPtr").prop('checked') + "&createPtrZone=" + $("#chkAddEditRecordDataCreatePtrZone").prop('checked');
+            var updateSvcbHints = zoneHasSvcbAutoHint(type == "A", type == "AAAA");
+
+            apiUrl += "&ipAddress=" + encodeURIComponent(ipAddress) + "&newIpAddress=" + encodeURIComponent(newIpAddress) + "&ptr=" + $("#chkAddEditRecordDataPtr").prop('checked') + "&createPtrZone=" + $("#chkAddEditRecordDataCreatePtrZone").prop('checked') + "&updateSvcbHints=" + updateSvcbHints;
             break;
 
         case "NS":
@@ -3991,7 +4962,7 @@ function updateRecord() {
         case "CNAME":
             var subDomainName = $("#txtAddEditRecordName").val();
             if ((subDomainName === "") || (subDomainName === "@")) {
-                showAlert("warning", "Missing!", "Please enter a name for the CNAME record.", divAddEditRecordAlert);
+                showAlert("warning", "Missing!", "Please enter a name for the CNAME record since DNS protocol does not allow CNAME at zone's apex. If you need CNAME like function at the zone's apex then use ANAME record instead.", divAddEditRecordAlert);
                 $("#txtAddEditRecordName").focus();
                 return;
             }
@@ -4057,9 +5028,6 @@ function updateRecord() {
             }
 
             var useSerialDateScheme = $("#chkEditRecordDataSoaUseSerialDateScheme").prop("checked");
-            var primaryAddresses = cleanTextList($("#txtEditRecordDataSoaPrimaryAddresses").val());
-            var zoneTransferProtocol = $('input[name=rdEditRecordDataSoaZoneTransferProtocol]:checked').val();
-            var tsigKeyName = $("#optEditRecordDataSoaTsigKeyName").val();
 
             apiUrl += "&primaryNameServer=" + encodeURIComponent(primaryNameServer) +
                 "&responsiblePerson=" + encodeURIComponent(responsiblePerson) +
@@ -4068,10 +5036,7 @@ function updateRecord() {
                 "&retry=" + encodeURIComponent(retry) +
                 "&expire=" + encodeURIComponent(expire) +
                 "&minimum=" + encodeURIComponent(minimum) +
-                "&useSerialDateScheme=" + encodeURIComponent(useSerialDateScheme) +
-                "&primaryAddresses=" + encodeURIComponent(primaryAddresses) +
-                "&zoneTransferProtocol=" + encodeURIComponent(zoneTransferProtocol) +
-                "&tsigKeyName=" + encodeURIComponent(tsigKeyName);
+                "&useSerialDateScheme=" + encodeURIComponent(useSerialDateScheme);
 
             break;
 
@@ -4110,14 +5075,33 @@ function updateRecord() {
         case "TXT":
             var text = divData.attr("data-record-text");
 
-            var newText = $("#txtAddEditRecordDataValue").val();
+            var newText = $("#txtAddEditRecordDataTxt").val();
             if (newText === "") {
                 showAlert("warning", "Missing!", "Please enter a suitable value to update the record.", divAddEditRecordAlert);
-                $("#txtAddEditRecordDataValue").focus();
+                $("#txtAddEditRecordDataTxt").focus();
                 return;
             }
 
-            apiUrl += "&text=" + encodeURIComponent(text) + "&newText=" + encodeURIComponent(newText);
+            var splitText = divData.attr("data-record-split-text");
+            var newSplitText = $("#chkAddEditRecordDataTxtSplitText").prop("checked");
+
+            apiUrl += "&text=" + encodeURIComponent(text) + "&newText=" + encodeURIComponent(newText) + "&splitText=" + splitText + "&newSplitText=" + newSplitText;
+            break;
+
+        case "RP":
+            var mailbox = divData.attr("data-record-mailbox");
+
+            var newMailbox = $("#txtAddEditRecordDataRpMailbox").val();
+            if (newMailbox === "")
+                newMailbox = ".";
+
+            var txtDomain = divData.attr("data-record-txt-domain");
+
+            var newTxtDomain = $("#txtAddEditRecordDataRpTxtDomain").val();
+            if (newTxtDomain === "")
+                newTxtDomain = ".";
+
+            apiUrl += "&mailbox=" + encodeURIComponent(mailbox) + "&newMailbox=" + encodeURIComponent(newMailbox) + "&txtDomain=" + encodeURIComponent(txtDomain) + "&newTxtDomain=" + encodeURIComponent(newTxtDomain);
             break;
 
         case "SRV":
@@ -4164,6 +5148,39 @@ function updateRecord() {
             }
 
             apiUrl += "&priority=" + priority + "&newPriority=" + newPriority + "&weight=" + weight + "&newWeight=" + newWeight + "&port=" + port + "&newPort=" + newPort + "&target=" + encodeURIComponent(target) + "&newTarget=" + encodeURIComponent(newTarget);
+            break;
+
+        case "NAPTR":
+            var order = divData.attr("data-record-order");
+            var preference = divData.attr("data-record-preference");
+            var flags = divData.attr("data-record-flags");
+            var services = divData.attr("data-record-services");
+            var regexp = divData.attr("data-record-regexp");
+            var replacement = divData.attr("data-record-replacement");
+
+            var newOrder = $("#txtAddEditRecordDataNaptrOrder").val();
+            if (newOrder === "") {
+                showAlert("warning", "Missing!", "Please enter a suitable order.", divAddEditRecordAlert);
+                $("#txtAddEditRecordDataNaptrOrder").focus();
+                return;
+            }
+
+            var newPreference = $("#txtAddEditRecordDataNaptrPreference").val();
+            if (newPreference === "") {
+                showAlert("warning", "Missing!", "Please enter a suitable preference.", divAddEditRecordAlert);
+                $("#txtAddEditRecordDataNaptrPreference").focus();
+                return;
+            }
+
+            var newFlags = $("#txtAddEditRecordDataNaptrFlags").val();
+            var newServices = $("#txtAddEditRecordDataNaptrServices").val();
+            var newRegexp = $("#txtAddEditRecordDataNaptrRegExp").val();
+            var newReplacement = $("#txtAddEditRecordDataNaptrReplacement").val();
+
+            if (newReplacement === "")
+                newReplacement = ".";
+
+            apiUrl += "&naptrOrder=" + order + "&naptrNewOrder=" + newOrder + "&naptrPreference=" + preference + "&naptrNewPreference=" + newPreference + "&naptrFlags=" + encodeURIComponent(flags) + "&naptrNewFlags=" + encodeURIComponent(newFlags) + "&naptrServices=" + encodeURIComponent(services) + "&naptrNewServices=" + encodeURIComponent(newServices) + "&naptrRegexp=" + encodeURIComponent(regexp) + "&naptrNewRegexp=" + encodeURIComponent(newRegexp) + "&naptrReplacement=" + encodeURIComponent(replacement) + "&naptrNewReplacement=" + encodeURIComponent(newReplacement);
             break;
 
         case "DNAME":
@@ -4328,7 +5345,10 @@ function updateRecord() {
             if (newSvcParams.length === 0)
                 newSvcParams = false;
 
-            apiUrl += "&svcPriority=" + svcPriority + "&newSvcPriority=" + newSvcPriority + "&svcTargetName=" + encodeURIComponent(svcTargetName) + "&newSvcTargetName=" + encodeURIComponent(newSvcTargetName) + "&svcParams=" + encodeURIComponent(svcParams) + "&newSvcParams=" + encodeURIComponent(newSvcParams);
+            var autoIpv4Hint = $("#chkAddEditRecordDataSvcbAutoIpv4Hint").prop("checked");
+            var autoIpv6Hint = $("#chkAddEditRecordDataSvcbAutoIpv6Hint").prop("checked");
+
+            apiUrl += "&svcPriority=" + svcPriority + "&newSvcPriority=" + newSvcPriority + "&svcTargetName=" + encodeURIComponent(svcTargetName) + "&newSvcTargetName=" + encodeURIComponent(newSvcTargetName) + "&svcParams=" + encodeURIComponent(svcParams) + "&newSvcParams=" + encodeURIComponent(newSvcParams) + "&autoIpv4Hint=" + autoIpv4Hint + "&autoIpv6Hint=" + autoIpv6Hint;
             break;
 
         case "URI":
@@ -4412,9 +5432,10 @@ function updateRecord() {
                 return;
             }
 
+            var forwarderPriority = $("#txtAddEditRecordDataForwarderPriority").val();
             var dnssecValidation = $("#chkAddEditRecordDataForwarderDnssecValidation").prop("checked");
 
-            apiUrl += "&protocol=" + protocol + "&newProtocol=" + newProtocol + "&forwarder=" + encodeURIComponent(forwarder) + "&newForwarder=" + encodeURIComponent(newForwarder) + "&dnssecValidation=" + dnssecValidation;
+            apiUrl += "&protocol=" + protocol + "&newProtocol=" + newProtocol + "&forwarder=" + encodeURIComponent(forwarder) + "&newForwarder=" + encodeURIComponent(newForwarder) + "&forwarderPriority=" + forwarderPriority + "&dnssecValidation=" + dnssecValidation;
 
             if (newForwarder !== "this-server") {
                 var proxyType = $("input[name=rdAddEditRecordDataForwarderProxyType]:checked").val();
@@ -4466,7 +5487,7 @@ function updateRecord() {
             break;
     }
 
-    apiUrl = "/api/zones/records/update?token=" + sessionData.token + "&zone=" + encodeURIComponent(zone) + "&type=" + encodeURIComponent(type) + "&domain=" + encodeURIComponent(domain) + "&newDomain=" + encodeURIComponent(newDomain) + "&ttl=" + ttl + "&disable=" + disable + "&comments=" + encodeURIComponent(comments) + apiUrl;
+    apiUrl = "/api/zones/records/update?token=" + sessionData.token + "&zone=" + encodeURIComponent(zone) + "&type=" + encodeURIComponent(type) + "&domain=" + encodeURIComponent(domain) + "&newDomain=" + encodeURIComponent(newDomain) + "&ttl=" + ttl + "&disable=" + disable + "&comments=" + encodeURIComponent(comments) + "&expiryTtl=" + expiryTtl + apiUrl;
 
     btn.button("loading");
 
@@ -4479,7 +5500,7 @@ function updateRecord() {
             editZoneInfo = responseJSON.response.zone;
             editZoneRecords[index] = responseJSON.response.updatedRecord;
 
-            //show record
+            //show updated record
             var zoneType;
             if (responseJSON.response.zone.internal)
                 zoneType = "Internal";
@@ -4507,10 +5528,12 @@ function updateRecordState(objBtn, disable) {
     var index = Number(btn.attr("data-id"));
     var divData = $("#data" + index);
 
+    var zone = $("#titleEditZone").attr("data-zone");
     var type = divData.attr("data-record-type");
     var domain = divData.attr("data-record-name");
     var ttl = divData.attr("data-record-ttl");
     var comments = divData.attr("data-record-comments");
+    var expiryTtl = $("#txtAddEditRecordExpiryTtl").val();
 
     if (domain === "")
         domain = ".";
@@ -4518,12 +5541,14 @@ function updateRecordState(objBtn, disable) {
     if (disable && !confirm("Are you sure to disable the " + type + " record '" + domain + "'?"))
         return;
 
-    var apiUrl = "/api/zones/records/update?token=" + sessionData.token + "&type=" + encodeURIComponent(type) + "&domain=" + encodeURIComponent(domain) + "&ttl=" + ttl + "&disable=" + disable + "&comments=" + encodeURIComponent(comments);
+    var apiUrl = "/api/zones/records/update?token=" + sessionData.token + "&zone=" + encodeURIComponent(zone) + "&type=" + encodeURIComponent(type) + "&domain=" + encodeURIComponent(domain) + "&ttl=" + ttl + "&disable=" + disable + "&comments=" + encodeURIComponent(comments) + "&expiryTtl=" + expiryTtl;
 
     switch (type) {
         case "A":
         case "AAAA":
-            apiUrl += "&ipAddress=" + encodeURIComponent(divData.attr("data-record-ip-address"));
+            var updateSvcbHints = zoneHasSvcbAutoHint(type == "A", type == "AAAA");
+
+            apiUrl += "&ipAddress=" + encodeURIComponent(divData.attr("data-record-ip-address")) + "&updateSvcbHints=" + updateSvcbHints;
             break;
 
         case "NS":
@@ -4543,11 +5568,19 @@ function updateRecordState(objBtn, disable) {
             break;
 
         case "TXT":
-            apiUrl += "&text=" + encodeURIComponent(divData.attr("data-record-text"));
+            apiUrl += "&text=" + encodeURIComponent(divData.attr("data-record-text")) + "&splitText=" + divData.attr("data-record-split-text");
+            break;
+
+        case "RP":
+            apiUrl += "&mailbox=" + encodeURIComponent(divData.attr("data-record-mailbox")) + "&txtDomain=" + encodeURIComponent(divData.attr("data-record-txt-domain"));
             break;
 
         case "SRV":
             apiUrl += "&priority=" + divData.attr("data-record-priority") + "&weight=" + divData.attr("data-record-weight") + "&port=" + divData.attr("data-record-port") + "&target=" + encodeURIComponent(divData.attr("data-record-target"));
+            break;
+
+        case "NAPTR":
+            apiUrl += "&naptrOrder=" + divData.attr("data-record-order") + "&naptrPreference=" + divData.attr("data-record-preference") + "&naptrFlags=" + encodeURIComponent(divData.attr("data-record-flags")) + "&naptrServices=" + encodeURIComponent(divData.attr("data-record-services")) + "&naptrRegexp=" + encodeURIComponent(divData.attr("data-record-regexp")) + "&naptrReplacement=" + encodeURIComponent(divData.attr("data-record-replacement"));
             break;
 
         case "DNAME":
@@ -4585,7 +5618,10 @@ function updateRecordState(objBtn, disable) {
                     svcParams = false;
             }
 
-            apiUrl += "&svcPriority=" + svcPriority + "&svcTargetName=" + encodeURIComponent(svcTargetName) + "&svcParams=" + encodeURIComponent(svcParams);
+            var autoIpv4Hint = divData.attr("data-record-auto-ipv4hint");
+            var autoIpv6Hint = divData.attr("data-record-auto-ipv6hint");
+
+            apiUrl += "&svcPriority=" + svcPriority + "&svcTargetName=" + encodeURIComponent(svcTargetName) + "&svcParams=" + encodeURIComponent(svcParams) + "&autoIpv4Hint=" + autoIpv4Hint + "&autoIpv6Hint=" + autoIpv6Hint;
             break;
 
         case "URI":
@@ -4605,7 +5641,7 @@ function updateRecordState(objBtn, disable) {
 
             var proxyType = divData.attr("data-record-proxy-type");
 
-            apiUrl += "&dnssecValidation=" + divData.attr("data-record-dnssec-validation") + "&proxyType=" + proxyType;
+            apiUrl += "&forwarderPriority=" + divData.attr("data-record-priority") + "&dnssecValidation=" + divData.attr("data-record-dnssec-validation") + "&proxyType=" + proxyType;
 
             switch (proxyType) {
                 case "Http":
@@ -4631,24 +5667,24 @@ function updateRecordState(objBtn, disable) {
         success: function (responseJSON) {
             btn.button("reset");
 
-            //update local arrays
+            //update local data
+            editZoneInfo = responseJSON.response.zone;
             editZoneRecords[index] = responseJSON.response.updatedRecord;
 
-            //set new state
-            divData.attr("data-record-disabled", disable);
+            //show updated record
+            var zoneType;
+            if (responseJSON.response.zone.internal)
+                zoneType = "Internal";
+            else
+                zoneType = responseJSON.response.zone.type;
 
-            if (disable) {
-                $("#btnEnableRecord" + index).show();
-                $("#btnDisableRecord" + index).hide();
+            var tableHtmlRow = getZoneRecordRowHtml(index, zone, zoneType, responseJSON.response.updatedRecord);
+            $("#trZoneRecord" + index).replaceWith(tableHtmlRow);
 
+            if (disable)
                 showAlert("success", "Record Disabled!", "Resource record was disabled successfully.");
-            }
-            else {
-                $("#btnEnableRecord" + index).hide();
-                $("#btnDisableRecord" + index).show();
-
+            else
                 showAlert("success", "Record Enabled!", "Resource record was enabled successfully.");
-            }
         },
         error: function () {
             btn.button("reset");
@@ -4679,7 +5715,9 @@ function deleteRecord(objBtn) {
     switch (type) {
         case "A":
         case "AAAA":
-            apiUrl += "&ipAddress=" + encodeURIComponent(divData.attr("data-record-ip-address"));
+            var updateSvcbHints = zoneHasSvcbAutoHint(type == "A", type == "AAAA");
+
+            apiUrl += "&ipAddress=" + encodeURIComponent(divData.attr("data-record-ip-address")) + "&updateSvcbHints=" + updateSvcbHints;
             break;
 
         case "NS":
@@ -4695,11 +5733,19 @@ function deleteRecord(objBtn) {
             break;
 
         case "TXT":
-            apiUrl += "&text=" + encodeURIComponent(divData.attr("data-record-text"));
+            apiUrl += "&text=" + encodeURIComponent(divData.attr("data-record-text")) + "&splitText=" + divData.attr("data-record-split-text");
+            break;
+
+        case "RP":
+            apiUrl += "&mailbox=" + encodeURIComponent(divData.attr("data-record-mailbox")) + "&txtDomain=" + encodeURIComponent(divData.attr("data-record-txt-domain"));
             break;
 
         case "SRV":
             apiUrl += "&priority=" + divData.attr("data-record-priority") + "&weight=" + divData.attr("data-record-weight") + "&port=" + divData.attr("data-record-port") + "&target=" + encodeURIComponent(divData.attr("data-record-target"));
+            break;
+
+        case "NAPTR":
+            apiUrl += "&naptrOrder=" + divData.attr("data-record-order") + "&naptrPreference=" + divData.attr("data-record-preference") + "&naptrFlags=" + encodeURIComponent(divData.attr("data-record-flags")) + "&naptrServices=" + encodeURIComponent(divData.attr("data-record-services")) + "&naptrRegexp=" + encodeURIComponent(divData.attr("data-record-regexp")) + "&naptrReplacement=" + encodeURIComponent(divData.attr("data-record-replacement"));
             break;
 
         case "DS":
@@ -4850,7 +5896,7 @@ function signPrimaryZone() {
 
             var zoneHideDnssecRecords = (localStorage.getItem("zoneHideDnssecRecords") == "true");
             if (zoneHideDnssecRecords) {
-                $("#titleDnssecStatusEditZone").show();
+                $("#titleEditZoneDnssecStatus").show();
 
                 $("#lnkZoneDnssecSignZone").hide();
 
@@ -4908,7 +5954,7 @@ function unsignPrimaryZone() {
 
             var zoneHideDnssecRecords = (localStorage.getItem("zoneHideDnssecRecords") == "true");
             if (zoneHideDnssecRecords) {
-                $("#titleDnssecStatusEditZone").hide();
+                $("#titleEditZoneDnssecStatus").hide();
 
                 $("#lnkZoneDnssecSignZone").show();
 
@@ -5409,6 +6455,8 @@ function changeDnssecNxProof(objBtn) {
                 btn.attr("data-nsec3-salt-length", saltLength);
 
             btn.button("reset");
+
+            $("#titleEditZoneDnssecStatus").text(nxProof);
 
             var zoneHideDnssecRecords = (localStorage.getItem("zoneHideDnssecRecords") == "true");
             if (!zoneHideDnssecRecords)

@@ -66,6 +66,11 @@ namespace DnsServerCore
         const int LOG_CLEANUP_TIMER_INITIAL_INTERVAL = 60 * 1000;
         const int LOG_CLEANUP_TIMER_PERIODIC_INTERVAL = 60 * 60 * 1000;
 
+        readonly object _saveLock = new object();
+        bool _pendingSave;
+        readonly Timer _saveTimer;
+        const int SAVE_TIMER_INITIAL_INTERVAL = 10000;
+
         #endregion
 
         #region constructor
@@ -154,6 +159,28 @@ namespace DnsServerCore
 
             if (_enableLogging)
                 StartLogging();
+
+            _saveTimer = new Timer(delegate (object state)
+            {
+                lock (_saveLock)
+                {
+                    if (_pendingSave)
+                    {
+                        try
+                        {
+                            SaveConfigInternal();
+                            _pendingSave = false;
+                        }
+                        catch (Exception ex)
+                        {
+                            Write(ex);
+
+                            //set timer to retry again
+                            _saveTimer.Change(SAVE_TIMER_INITIAL_INTERVAL, Timeout.Infinite);
+                        }
+                    }
+                }
+            });
         }
 
         #endregion
@@ -164,6 +191,27 @@ namespace DnsServerCore
 
         private void Dispose(bool disposing)
         {
+            lock (_saveLock)
+            {
+                _saveTimer?.Dispose();
+
+                if (_pendingSave)
+                {
+                    try
+                    {
+                        SaveConfigFileInternal();
+                    }
+                    catch (Exception ex)
+                    {
+                        Write(ex);
+                    }
+                    finally
+                    {
+                        _pendingSave = false;
+                    }
+                }
+            }
+
             lock (_queueLock)
             {
                 try
@@ -329,12 +377,12 @@ namespace DnsServerCore
                 _maxLogFileDays = 0;
                 _useLocalTime = false;
 
-                SaveConfig();
+                SaveConfigFileInternal();
             }
             catch (Exception ex)
             {
                 Console.Write(ex.ToString());
-                SaveConfig();
+                SaveConfigFileInternal();
             }
 
             if (_maxLogFileDays == 0)
@@ -359,7 +407,7 @@ namespace DnsServerCore
             return Path.Combine(_configFolder, path);
         }
 
-        private void SaveConfig()
+        private void SaveConfigFileInternal()
         {
             string logConfigFile = Path.Combine(_configFolder, "log.config");
 
@@ -382,6 +430,32 @@ namespace DnsServerCore
                 using (FileStream fS = new FileStream(logConfigFile, FileMode.Create, FileAccess.Write))
                 {
                     mS.CopyTo(fS);
+                }
+            }
+        }
+
+        private void SaveConfigInternal()
+        {
+            SaveConfigFileInternal();
+
+            if (_logOut is null)
+            {
+                //stopped
+                if (_enableLogging)
+                    StartLogging();
+            }
+            else
+            {
+                //running
+                if (!_enableLogging)
+                {
+                    StopLogging();
+                }
+                else if (!_logFile.StartsWith(ConvertToAbsolutePath(_logFolder)))
+                {
+                    //log folder changed; restart logging to new folder
+                    StopLogging();
+                    StartLogging();
                 }
             }
         }
@@ -556,12 +630,20 @@ namespace DnsServerCore
             if (request.Question.Count > 0)
                 q = request.Question[0];
 
-            string question;
+            string requestInfo;
 
             if (q is null)
-                question = "MISSING QUESTION!";
+                requestInfo = "MISSING QUESTION!";
             else
-                question = "QNAME: " + q.Name + "; QTYPE: " + q.Type.ToString() + "; QCLASS: " + q.Class;
+                requestInfo = "QNAME: " + q.Name + "; QTYPE: " + q.Type.ToString() + "; QCLASS: " + q.Class;
+
+            if (request.Additional.Count > 0)
+            {
+                DnsResourceRecord lastRR = request.Additional[request.Additional.Count - 1];
+
+                if ((lastRR.Type == DnsResourceRecordType.TSIG) && (lastRR.RDATA is DnsTSIGRecordData tsig))
+                    requestInfo += "; TSIG KeyName: " + lastRR.Name.ToLowerInvariant() + "; TSIG Algo: " + tsig.AlgorithmName + "; TSIG Error: " + tsig.Error.ToString();
+            }
 
             string responseInfo;
 
@@ -572,12 +654,6 @@ namespace DnsServerCore
             else
             {
                 responseInfo = "; RCODE: " + response.RCODE.ToString();
-
-                if ((response.Additional.Count > 0) && (response.Additional[response.Additional.Count - 1].Type == DnsResourceRecordType.TSIG))
-                {
-                    if (response.Additional[response.Additional.Count - 1].RDATA is DnsTSIGRecordData tsig)
-                        responseInfo += "; TSIG: " + tsig.Error.ToString();
-                }
 
                 string answer;
 
@@ -644,7 +720,7 @@ namespace DnsServerCore
                 responseInfo += "; ANSWER: " + answer;
             }
 
-            Write(ep, protocol, question + responseInfo);
+            Write(ep, protocol, requestInfo + responseInfo);
         }
 
         public void Write(IPEndPoint ep, DnsTransportProtocol protocol, string message)
@@ -699,29 +775,15 @@ namespace DnsServerCore
             }
         }
 
-        public void Save()
+        public void SaveConfig()
         {
-            SaveConfig();
+            lock (_saveLock)
+            {
+                if (_pendingSave)
+                    return;
 
-            if (_logOut == null)
-            {
-                //stopped
-                if (_enableLogging)
-                    StartLogging();
-            }
-            else
-            {
-                //running
-                if (!_enableLogging)
-                {
-                    StopLogging();
-                }
-                else if (!_logFile.StartsWith(ConvertToAbsolutePath(_logFolder)))
-                {
-                    //log folder changed; restart logging to new folder
-                    StopLogging();
-                    StartLogging();
-                }
+                _pendingSave = true;
+                _saveTimer.Change(SAVE_TIMER_INITIAL_INTERVAL, Timeout.Infinite);
             }
         }
 

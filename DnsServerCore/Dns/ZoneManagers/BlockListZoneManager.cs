@@ -67,22 +67,22 @@ namespace DnsServerCore.Dns.ZoneManagers
             if (!Directory.Exists(_localCacheFolder))
                 Directory.CreateDirectory(_localCacheFolder);
 
-            UpdateServerDomain(_dnsServer.ServerDomain);
+            UpdateServerDomain();
         }
 
         #endregion
 
         #region private
 
-        private void UpdateServerDomain(string serverDomain)
+        internal void UpdateServerDomain()
         {
-            _soaRecord = new DnsSOARecordData(serverDomain, "hostadmin@" + serverDomain, 1, 14400, 3600, 604800, 60);
-            _nsRecord = new DnsNSRecordData(serverDomain);
+            _soaRecord = new DnsSOARecordData(_dnsServer.ServerDomain, _dnsServer.ResponsiblePerson.Address, 1, 14400, 3600, 604800, 60);
+            _nsRecord = new DnsNSRecordData(_dnsServer.ServerDomain);
         }
 
         private string GetBlockListFilePath(Uri blockListUrl)
         {
-            return Path.Combine(_localCacheFolder, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(blockListUrl.AbsoluteUri))).ToLower());
+            return Path.Combine(_localCacheFolder, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(blockListUrl.AbsoluteUri))).ToLowerInvariant());
         }
 
         private static string PopWord(ref string line)
@@ -167,14 +167,14 @@ namespace DnsServerCore.Dns.ZoneManagers
                                 options = line.Substring(i + 1);
 
                                 if (((options.Length == 0) || (options.StartsWith('$') && (options.Contains("doc") || options.Contains("all")))) && DnsClient.IsDomainNameValid(domain))
-                                    domains.Enqueue(domain.ToLower());
+                                    domains.Enqueue(domain.ToLowerInvariant());
                             }
                             else
                             {
                                 domain = line.Substring(2);
 
                                 if (DnsClient.IsDomainNameValid(domain))
-                                    domains.Enqueue(domain.ToLower());
+                                    domains.Enqueue(domain.ToLowerInvariant());
                             }
                         }
                         else if (line.StartsWith("@@||"))
@@ -187,14 +187,14 @@ namespace DnsServerCore.Dns.ZoneManagers
                                 options = line.Substring(i + 1);
 
                                 if (((options.Length == 0) || (options.StartsWith('$') && (options.Contains("doc") || options.Contains("all")))) && DnsClient.IsDomainNameValid(domain))
-                                    exceptionDomains.Enqueue(domain.ToLower());
+                                    exceptionDomains.Enqueue(domain.ToLowerInvariant());
                             }
                             else
                             {
                                 domain = line.Substring(4);
 
                                 if (DnsClient.IsDomainNameValid(domain))
-                                    exceptionDomains.Enqueue(domain.ToLower());
+                                    exceptionDomains.Enqueue(domain.ToLowerInvariant());
                             }
                         }
                         else
@@ -216,7 +216,7 @@ namespace DnsServerCore.Dns.ZoneManagers
                                     hostname = secondWord;
                             }
 
-                            hostname = hostname.Trim('.').ToLower();
+                            hostname = hostname.Trim('.').ToLowerInvariant();
 
                             switch (hostname)
                             {
@@ -258,7 +258,7 @@ namespace DnsServerCore.Dns.ZoneManagers
 
         private List<Uri> IsZoneBlocked(string domain, out string blockedDomain)
         {
-            domain = domain.ToLower();
+            domain = domain.ToLowerInvariant();
 
             do
             {
@@ -279,7 +279,7 @@ namespace DnsServerCore.Dns.ZoneManagers
 
         private bool IsZoneAllowed(string domain)
         {
-            domain = domain.ToLower();
+            domain = domain.ToLowerInvariant();
 
             do
             {
@@ -608,12 +608,6 @@ namespace DnsServerCore.Dns.ZoneManagers
         #endregion
 
         #region properties
-
-        public string ServerDomain
-        {
-            get { return _soaRecord.PrimaryNameServer; }
-            set { UpdateServerDomain(value); }
-        }
 
         public List<Uri> AllowListUrls
         { get { return _allowListUrls; } }

@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2023  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ namespace DnsServerCore.Dns.Zones
                     default:
                         foreach (DnsResourceRecord record in records)
                         {
-                            if (record.GetAuthRecordInfo().Disabled)
+                            if (record.GetAuthGenericRecordInfo().Disabled)
                                 throw new DnsServerException("Cannot set records: disabling records in a signed zones is not supported.");
                         }
 
@@ -117,7 +117,7 @@ namespace DnsServerCore.Dns.Zones
                         throw new DnsServerException("The record type is not supported by DNSSEC signed primary zones.");
 
                     default:
-                        if (record.GetAuthRecordInfo().Disabled)
+                        if (record.GetAuthGenericRecordInfo().Disabled)
                             throw new DnsServerException("Cannot add record: disabling records in a signed zones is not supported.");
 
                         break;
@@ -197,7 +197,7 @@ namespace DnsServerCore.Dns.Zones
                 default:
                     if (TryDeleteRecord(type, rdata, out DnsResourceRecord deletedRecord))
                     {
-                        _primaryZone.CommitAndIncrementSerial(new DnsResourceRecord[] { deletedRecord });
+                        _primaryZone.CommitAndIncrementSerial([deletedRecord]);
 
                         if (_primaryZone.DnssecStatus != AuthZoneDnssecStatus.Unsigned)
                             _primaryZone.UpdateDnssecRecordsFor(this, type);
@@ -216,7 +216,7 @@ namespace DnsServerCore.Dns.Zones
             switch (oldRecord.Type)
             {
                 case DnsResourceRecordType.SOA:
-                    throw new InvalidOperationException("Cannot update record: use SetRecords() for " + oldRecord.Type.ToString() + " record");
+                    throw new InvalidOperationException("Cannot update record: use SetRecords() for " + oldRecord.Type.ToString() + " record.");
 
                 case DnsResourceRecordType.DNSKEY:
                 case DnsResourceRecordType.RRSIG:
@@ -229,7 +229,7 @@ namespace DnsServerCore.Dns.Zones
                     if (oldRecord.Type != newRecord.Type)
                         throw new InvalidOperationException("Old and new record types do not match.");
 
-                    if ((_primaryZone.DnssecStatus != AuthZoneDnssecStatus.Unsigned) && newRecord.GetAuthRecordInfo().Disabled)
+                    if ((_primaryZone.DnssecStatus != AuthZoneDnssecStatus.Unsigned) && newRecord.GetAuthGenericRecordInfo().Disabled)
                         throw new DnsServerException("Cannot update record: disabling records in a signed zones is not supported.");
 
                     if (newRecord.OriginalTtlValue > _primaryZone.GetZoneSoaExpire())

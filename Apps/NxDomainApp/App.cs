@@ -65,7 +65,7 @@ namespace NxDomain
 
         private bool IsZoneBlocked(string domain, out string blockedDomain)
         {
-            domain = domain.ToLower();
+            domain = domain.ToLowerInvariant();
 
             do
             {
@@ -90,7 +90,7 @@ namespace NxDomain
 
         public Task InitializeAsync(IDnsServer dnsServer, string config)
         {
-            _soaRecord = new DnsSOARecordData(dnsServer.ServerDomain, "hostadmin@" + dnsServer.ServerDomain, 1, 14400, 3600, 604800, 60);
+            _soaRecord = new DnsSOARecordData(dnsServer.ServerDomain, dnsServer.ResponsiblePerson.Address, 1, 14400, 3600, 604800, 60);
 
             using JsonDocument jsonDocument = JsonDocument.Parse(config);
             JsonElement jsonConfig = jsonDocument.RootElement;

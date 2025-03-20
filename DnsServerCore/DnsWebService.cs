@@ -37,6 +37,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Mail;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -114,6 +115,11 @@ namespace DnsServerCore
 
         List<string> _configDisabledZones;
 
+        readonly object _saveLock = new object();
+        bool _pendingSave;
+        readonly Timer _saveTimer;
+        const int SAVE_TIMER_INITIAL_INTERVAL = 10000;
+
         #endregion
 
         #region constructor
@@ -132,6 +138,7 @@ namespace DnsServerCore
 
             Directory.CreateDirectory(_configFolder);
             Directory.CreateDirectory(Path.Combine(_configFolder, "blocklists"));
+            Directory.CreateDirectory(Path.Combine(_configFolder, "zones"));
 
             _log = new LogManager(_configFolder);
             _authManager = new AuthManager(_configFolder, _log);
@@ -145,6 +152,28 @@ namespace DnsServerCore
             _dhcpApi = new WebServiceDhcpApi(this);
             _authApi = new WebServiceAuthApi(this);
             _logsApi = new WebServiceLogsApi(this);
+
+            _saveTimer = new Timer(delegate (object state)
+            {
+                lock (_saveLock)
+                {
+                    if (_pendingSave)
+                    {
+                        try
+                        {
+                            SaveConfigFileInternal();
+                            _pendingSave = false;
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.Write(ex);
+
+                            //set timer to retry again
+                            _saveTimer.Change(SAVE_TIMER_INITIAL_INTERVAL, Timeout.Infinite);
+                        }
+                    }
+                }
+            });
         }
 
         #endregion
@@ -157,6 +186,27 @@ namespace DnsServerCore
         {
             if (_disposed)
                 return;
+
+            lock (_saveLock)
+            {
+                _saveTimer?.Dispose();
+
+                if (_pendingSave)
+                {
+                    try
+                    {
+                        SaveConfigFileInternal();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Write(ex);
+                    }
+                    finally
+                    {
+                        _pendingSave = false;
+                    }
+                }
+            }
 
             await StopAsync();
 
@@ -194,6 +244,9 @@ namespace DnsServerCore
 
         internal string ConvertToAbsolutePath(string path)
         {
+            if (path is null)
+                return null;
+
             if (Path.IsPathRooted(path))
                 return path;
 
@@ -250,7 +303,7 @@ namespace DnsServerCore
 
                 await StartWebServiceAsync(_webServiceLocalAddresses, _webServiceHttpPort, _webServiceTlsPort, false);
 
-                SaveConfigFile(); //save reverted changes
+                SaveConfigFileInternal(); //save reverted changes
                 return;
             }
             catch (Exception ex2)
@@ -331,7 +384,7 @@ namespace DnsServerCore
             _webService = builder.Build();
 
             if (_webServiceHttpToTlsRedirect && !safeMode && _webServiceEnableTls && (_webServiceCertificateCollection is not null))
-                _webService.UseHttpsRedirection();
+                _webService.Use(WebServiceHttpsRedirectionMiddleware);
 
             _webService.UseDefaultFiles();
             _webService.UseStaticFiles(new StaticFileOptions()
@@ -411,6 +464,7 @@ namespace DnsServerCore
 
             //zones
             _webService.MapGetAndPost("/api/zones/list", _zonesApi.ListZones);
+            _webService.MapGetAndPost("/api/zones/catalogs/list", _zonesApi.ListCatalogZones);
             _webService.MapGetAndPost("/api/zones/create", _zonesApi.CreateZoneAsync);
             _webService.MapGetAndPost("/api/zones/import", _zonesApi.ImportZoneAsync);
             _webService.MapGetAndPost("/api/zones/export", _zonesApi.ExportZoneAsync);
@@ -525,6 +579,15 @@ namespace DnsServerCore
             _webService.MapGetAndPost("/api/logs/delete", _logsApi.DeleteLog);
             _webService.MapGetAndPost("/api/logs/deleteAll", _logsApi.DeleteAllLogs);
             _webService.MapGetAndPost("/api/logs/query", _logsApi.QueryLogsAsync);
+        }
+
+        private Task WebServiceHttpsRedirectionMiddleware(HttpContext context, RequestDelegate next)
+        {
+            if (context.Request.IsHttps)
+                return next(context);
+
+            context.Response.Redirect("https://" + (context.Request.Host.HasValue ? context.Request.Host.Host : _dnsServer.ServerDomain) + (_webServiceTlsPort == 443 ? "" : ":" + _webServiceTlsPort) + context.Request.Path + (context.Request.QueryString.HasValue ? context.Request.QueryString.Value : ""), false, true);
+            return Task.CompletedTask;
         }
 
         private async Task WebServiceApiMiddleware(HttpContext context, RequestDelegate next)
@@ -648,7 +711,7 @@ namespace DnsServerCore
                         jsonWriter.WriteEndObject();
                     }
 
-                    _log.Write(ex);
+                    _log.Write(context.GetRemoteEndPoint(), ex);
                 }
             });
         }
@@ -737,8 +800,15 @@ namespace DnsServerCore
             if (!fileInfo.Exists)
                 throw new ArgumentException("Web Service TLS certificate file does not exists: " + tlsCertificatePath);
 
-            if (Path.GetExtension(tlsCertificatePath) != ".pfx")
-                throw new ArgumentException("Web Service TLS certificate file must be PKCS #12 formatted with .pfx extension: " + tlsCertificatePath);
+            switch (Path.GetExtension(tlsCertificatePath).ToLowerInvariant())
+            {
+                case ".pfx":
+                case ".p12":
+                    break;
+
+                default:
+                    throw new ArgumentException("Web Service TLS certificate file must be PKCS #12 formatted with .pfx or .p12 extension: " + tlsCertificatePath);
+            }
 
             X509Certificate2Collection certificateCollection = new X509Certificate2Collection();
             certificateCollection.Import(tlsCertificatePath, tlsCertificatePassword, X509KeyStorageFlags.PersistKeySet);
@@ -776,8 +846,15 @@ namespace DnsServerCore
             if (!fileInfo.Exists)
                 throw new ArgumentException("DNS Server TLS certificate file does not exists: " + tlsCertificatePath);
 
-            if (Path.GetExtension(tlsCertificatePath) != ".pfx")
-                throw new ArgumentException("DNS Server TLS certificate file must be PKCS #12 formatted with .pfx extension: " + tlsCertificatePath);
+            switch (Path.GetExtension(tlsCertificatePath).ToLowerInvariant())
+            {
+                case ".pfx":
+                case ".p12":
+                    break;
+
+                default:
+                    throw new ArgumentException("DNS Server TLS certificate file must be PKCS #12 formatted with .pfx or .p12 extension: " + tlsCertificatePath);
+            }
 
             X509Certificate2Collection certificateCollection = new X509Certificate2Collection();
             certificateCollection.Import(tlsCertificatePath, tlsCertificatePassword, X509KeyStorageFlags.PersistKeySet);
@@ -790,10 +867,15 @@ namespace DnsServerCore
 
         internal void SelfSignedCertCheck(bool generateNew, bool throwException)
         {
-            string selfSignedCertificateFilePath = Path.Combine(_configFolder, "cert.pfx");
+            string selfSignedCertificateFilePath = Path.Combine(_configFolder, "self-signed-cert.pfx");
 
             if (_webServiceUseSelfSignedTlsCertificate)
             {
+                string oldSelfSignedCertificateFilePath = Path.Combine(_configFolder, "cert.pfx");
+
+                if (!oldSelfSignedCertificateFilePath.Equals(ConvertToAbsolutePath(_webServiceTlsCertificatePath), Environment.OSVersion.Platform == PlatformID.Win32NT ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) && File.Exists(oldSelfSignedCertificateFilePath) && !File.Exists(selfSignedCertificateFilePath))
+                    File.Move(oldSelfSignedCertificateFilePath, selfSignedCertificateFilePath);
+
                 if (generateNew || !File.Exists(selfSignedCertificateFilePath))
                 {
                     RSA rsa = RSA.Create(2048);
@@ -871,7 +953,7 @@ namespace DnsServerCore
                 _log.Write("DNS Server config file was loaded: " + configFile);
 
                 if (version <= 27)
-                    SaveConfigFile(); //save as new config version to avoid loading old version next time
+                    SaveConfigFileInternal(); //save as new config version to avoid loading old version next time
             }
             catch (FileNotFoundException)
             {
@@ -925,17 +1007,30 @@ namespace DnsServerCore
                 else
                     _dnsServer.Recursion = DnsServerRecursion.AllowOnlyForPrivateNetworks; //default for security reasons
 
-                string strRecursionDeniedNetworks = Environment.GetEnvironmentVariable("DNS_SERVER_RECURSION_DENIED_NETWORKS");
-                if (!string.IsNullOrEmpty(strRecursionDeniedNetworks))
-                    _dnsServer.RecursionDeniedNetworks = strRecursionDeniedNetworks.Split(NetworkAddress.Parse, ',');
+                string strRecursionNetworkACL = Environment.GetEnvironmentVariable("DNS_SERVER_RECURSION_NETWORK_ACL");
+                if (!string.IsNullOrEmpty(strRecursionNetworkACL))
+                {
+                    _dnsServer.RecursionNetworkACL = strRecursionNetworkACL.Split(NetworkAccessControl.Parse, ',');
+                }
+                else
+                {
+                    NetworkAddress[] recursionDeniedNetworks = null;
+                    NetworkAddress[] recursionAllowedNetworks = null;
 
-                string strRecursionAllowedNetworks = Environment.GetEnvironmentVariable("DNS_SERVER_RECURSION_ALLOWED_NETWORKS");
-                if (!string.IsNullOrEmpty(strRecursionAllowedNetworks))
-                    _dnsServer.RecursionAllowedNetworks = strRecursionAllowedNetworks.Split(NetworkAddress.Parse, ',');
+                    string strRecursionDeniedNetworks = Environment.GetEnvironmentVariable("DNS_SERVER_RECURSION_DENIED_NETWORKS");
+                    if (!string.IsNullOrEmpty(strRecursionDeniedNetworks))
+                        recursionDeniedNetworks = strRecursionDeniedNetworks.Split(NetworkAddress.Parse, ',');
 
-                _dnsServer.RandomizeName = true; //default true to enable security feature
+                    string strRecursionAllowedNetworks = Environment.GetEnvironmentVariable("DNS_SERVER_RECURSION_ALLOWED_NETWORKS");
+                    if (!string.IsNullOrEmpty(strRecursionAllowedNetworks))
+                        recursionAllowedNetworks = strRecursionAllowedNetworks.Split(NetworkAddress.Parse, ',');
+
+                    _dnsServer.RecursionNetworkACL = AuthZoneInfo.ConvertDenyAllowToACL(recursionDeniedNetworks, recursionAllowedNetworks);
+                }
+
+                _dnsServer.RandomizeName = false; //default false to allow resolving from bad name servers
                 _dnsServer.QnameMinimization = true; //default true to enable privacy feature
-                _dnsServer.NsRevalidation = true; //default true for security reasons
+                _dnsServer.NsRevalidation = false; //default false to allow resolving misconfigured zones
 
                 //cache
                 _dnsServer.CacheZoneManager.MaximumEntries = 10000;
@@ -1011,7 +1106,7 @@ namespace DnsServerCore
 
                 _dnsServer.StatsManager.EnableInMemoryStats = false;
 
-                SaveConfigFile();
+                SaveConfigFileInternal();
             }
             catch (Exception ex)
             {
@@ -1037,14 +1132,11 @@ namespace DnsServerCore
                     _authManager.SetPermission(PermissionSection.Zones, ntpDomain, _authManager.GetGroup(Group.ADMINISTRATORS), PermissionFlag.ViewModifyDelete);
                     _authManager.SetPermission(PermissionSection.Zones, ntpDomain, _authManager.GetGroup(Group.DNS_ADMINISTRATORS), PermissionFlag.ViewModifyDelete);
                     _authManager.SaveConfigFile();
-
-                    Directory.CreateDirectory(Path.Combine(_dnsServer.ConfigFolder, "zones"));
-                    _dnsServer.AuthZoneManager.SaveZoneFile(ntpDomain);
                 }
             }
         }
 
-        internal void SaveConfigFile()
+        private void SaveConfigFileInternal()
         {
             string configFile = Path.Combine(_configFolder, "dns.config");
 
@@ -1063,6 +1155,18 @@ namespace DnsServerCore
             }
 
             _log.Write("DNS Server config file was saved: " + configFile);
+        }
+
+        internal void SaveConfigFile()
+        {
+            lock (_saveLock)
+            {
+                if (_pendingSave)
+                    return;
+
+                _pendingSave = true;
+                _saveTimer.Change(SAVE_TIMER_INITIAL_INTERVAL, Timeout.Infinite);
+            }
         }
 
         internal void InspectAndFixZonePermissions()
@@ -1116,7 +1220,7 @@ namespace DnsServerCore
 
             int version = bR.ReadByte();
 
-            if ((version >= 28) && (version <= 35))
+            if ((version >= 28) && (version <= 37))
             {
                 ReadConfigFrom(bR, version);
             }
@@ -1127,7 +1231,10 @@ namespace DnsServerCore
                 //new default settings
                 DnsClientConnection.IPv4SourceAddresses = null;
                 DnsClientConnection.IPv6SourceAddresses = null;
+                _appsApi.EnableAutomaticUpdate = true;
                 _webServiceEnableHttp3 = _webServiceEnableTls && IsQuicSupported();
+                _dnsServer.EnableDnsOverHttp3 = _dnsServer.EnableDnsOverHttps && IsQuicSupported();
+                _dnsServer.ResponsiblePersonInternal = null;
                 _dnsServer.AuthZoneManager.UseSoaSerialDateScheme = false;
                 _dnsServer.ZoneTransferAllowedNetworks = null;
                 _dnsServer.NotifyAllowedNetworks = null;
@@ -1138,8 +1245,12 @@ namespace DnsServerCore
                 _dnsServer.EDnsClientSubnetIpv6Override = null;
                 _dnsServer.QpmLimitBypassList = null;
                 _dnsServer.BlockingBypassList = null;
+                _dnsServer.ResolverConcurrency = 2;
+                _dnsServer.CacheZoneManager.ServeStaleAnswerTtl = CacheZoneManager.SERVE_STALE_ANSWER_TTL;
+                _dnsServer.CacheZoneManager.ServeStaleResetTtl = CacheZoneManager.SERVE_STALE_RESET_TTL;
+                _dnsServer.ServeStaleMaxWaitTime = DnsServer.SERVE_STALE_MAX_WAIT_TIME;
+                _dnsServer.ConcurrentForwarding = true;
                 _dnsServer.ResolverLogManager = _log;
-                _appsApi.EnableAutomaticUpdate = true;
                 _dnsServer.StatsManager.EnableInMemoryStats = false;
             }
             else
@@ -1233,8 +1344,8 @@ namespace DnsServerCore
 
                 if (version >= 34)
                 {
-                    DnsClientConnection.IPv4SourceAddresses = ReadNetworkAddresses(bR);
-                    DnsClientConnection.IPv6SourceAddresses = ReadNetworkAddresses(bR);
+                    DnsClientConnection.IPv4SourceAddresses = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
+                    DnsClientConnection.IPv6SourceAddresses = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
                 }
                 else
                 {
@@ -1244,10 +1355,23 @@ namespace DnsServerCore
 
                 _zonesApi.DefaultRecordTtl = bR.ReadUInt32();
 
+                if (version >= 36)
+                {
+                    string rp = bR.ReadString();
+                    if (rp.Length == 0)
+                        _dnsServer.ResponsiblePersonInternal = null;
+                    else
+                        _dnsServer.ResponsiblePersonInternal = new MailAddress(rp);
+                }
+                else
+                {
+                    _dnsServer.ResponsiblePersonInternal = null;
+                }
+
                 if (version >= 33)
                 {
                     _dnsServer.AuthZoneManager.UseSoaSerialDateScheme = bR.ReadBoolean();
-                    _dnsServer.ZoneTransferAllowedNetworks = ReadNetworkAddresses(bR);
+                    _dnsServer.ZoneTransferAllowedNetworks = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
                 }
                 else
                 {
@@ -1256,7 +1380,7 @@ namespace DnsServerCore
                 }
 
                 if (version >= 34)
-                    _dnsServer.NotifyAllowedNetworks = ReadNetworkAddresses(bR);
+                    _dnsServer.NotifyAllowedNetworks = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
                 else
                     _dnsServer.NotifyAllowedNetworks = null;
 
@@ -1304,7 +1428,7 @@ namespace DnsServerCore
                 _dnsServer.QpmLimitIPv6PrefixLength = bR.ReadInt32();
 
                 if (version >= 34)
-                    _dnsServer.QpmLimitBypassList = ReadNetworkAddresses(bR);
+                    _dnsServer.QpmLimitBypassList = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
                 else
                     _dnsServer.QpmLimitBypassList = null;
 
@@ -1346,6 +1470,11 @@ namespace DnsServerCore
                 _dnsServer.EnableDnsOverHttp = bR.ReadBoolean();
                 _dnsServer.EnableDnsOverTls = bR.ReadBoolean();
                 _dnsServer.EnableDnsOverHttps = bR.ReadBoolean();
+
+                if (version >= 37)
+                    _dnsServer.EnableDnsOverHttp3 = bR.ReadBoolean();
+                else
+                    _dnsServer.EnableDnsOverHttp3 = _dnsServer.EnableDnsOverHttps && IsQuicSupported();
 
                 if (version >= 32)
                 {
@@ -1445,8 +1574,16 @@ namespace DnsServerCore
                 //recursion
                 _dnsServer.Recursion = (DnsServerRecursion)bR.ReadByte();
 
-                _dnsServer.RecursionDeniedNetworks = ReadNetworkAddresses(bR);
-                _dnsServer.RecursionAllowedNetworks = ReadNetworkAddresses(bR);
+                if (version >= 37)
+                {
+                    _dnsServer.RecursionNetworkACL = AuthZoneInfo.ReadNetworkACLFrom(bR);
+                }
+                else
+                {
+                    NetworkAddress[] recursionDeniedNetworks = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
+                    NetworkAddress[] recursionAllowedNetworks = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
+                    _dnsServer.RecursionNetworkACL = AuthZoneInfo.ConvertDenyAllowToACL(recursionDeniedNetworks, recursionAllowedNetworks);
+                }
 
                 _dnsServer.RandomizeName = bR.ReadBoolean();
                 _dnsServer.QnameMinimization = bR.ReadBoolean();
@@ -1454,6 +1591,12 @@ namespace DnsServerCore
 
                 _dnsServer.ResolverRetries = bR.ReadInt32();
                 _dnsServer.ResolverTimeout = bR.ReadInt32();
+
+                if (version >= 37)
+                    _dnsServer.ResolverConcurrency = bR.ReadInt32();
+                else
+                    _dnsServer.ResolverConcurrency = 2;
+
                 _dnsServer.ResolverMaxStackCount = bR.ReadInt32();
 
                 //cache
@@ -1464,6 +1607,19 @@ namespace DnsServerCore
 
                 _dnsServer.ServeStale = bR.ReadBoolean();
                 _dnsServer.CacheZoneManager.ServeStaleTtl = bR.ReadUInt32();
+
+                if (version >= 36)
+                {
+                    _dnsServer.CacheZoneManager.ServeStaleAnswerTtl = bR.ReadUInt32();
+                    _dnsServer.CacheZoneManager.ServeStaleResetTtl = bR.ReadUInt32();
+                    _dnsServer.ServeStaleMaxWaitTime = bR.ReadInt32();
+                }
+                else
+                {
+                    _dnsServer.CacheZoneManager.ServeStaleAnswerTtl = CacheZoneManager.SERVE_STALE_ANSWER_TTL;
+                    _dnsServer.CacheZoneManager.ServeStaleResetTtl = CacheZoneManager.SERVE_STALE_RESET_TTL;
+                    _dnsServer.ServeStaleMaxWaitTime = DnsServer.SERVE_STALE_MAX_WAIT_TIME;
+                }
 
                 _dnsServer.CacheZoneManager.MaximumEntries = bR.ReadInt64();
                 _dnsServer.CacheZoneManager.MinimumRecordTtl = bR.ReadUInt32();
@@ -1481,7 +1637,7 @@ namespace DnsServerCore
                 _dnsServer.AllowTxtBlockingReport = bR.ReadBoolean();
 
                 if (version >= 33)
-                    _dnsServer.BlockingBypassList = ReadNetworkAddresses(bR);
+                    _dnsServer.BlockingBypassList = AuthZoneInfo.ReadNetworkAddressesFrom(bR);
                 else
                     _dnsServer.BlockingBypassList = null;
 
@@ -1589,6 +1745,11 @@ namespace DnsServerCore
                         _dnsServer.Forwarders = null;
                     }
                 }
+
+                if (version >= 37)
+                    _dnsServer.ConcurrentForwarding = bR.ReadBoolean();
+                else
+                    _dnsServer.ConcurrentForwarding = true;
 
                 _dnsServer.ForwarderRetries = bR.ReadInt32();
                 _dnsServer.ForwarderTimeout = bR.ReadInt32();
@@ -1698,6 +1859,7 @@ namespace DnsServerCore
             {
                 _dnsServer.Recursion = (DnsServerRecursion)bR.ReadByte();
 
+                NetworkAddress[] recursionDeniedNetworks = null;
                 {
                     int count = bR.ReadByte();
                     if (count > 0)
@@ -1707,15 +1869,15 @@ namespace DnsServerCore
                         for (int i = 0; i < count; i++)
                             networks[i] = NetworkAddress.ReadFrom(bR);
 
-                        _dnsServer.RecursionDeniedNetworks = networks;
+                        recursionDeniedNetworks = networks;
                     }
                     else
                     {
-                        _dnsServer.RecursionDeniedNetworks = null;
+                        recursionDeniedNetworks = null;
                     }
                 }
 
-
+                NetworkAddress[] recursionAllowedNetworks = null;
                 {
                     int count = bR.ReadByte();
                     if (count > 0)
@@ -1725,13 +1887,15 @@ namespace DnsServerCore
                         for (int i = 0; i < count; i++)
                             networks[i] = NetworkAddress.ReadFrom(bR);
 
-                        _dnsServer.RecursionAllowedNetworks = networks;
+                        recursionAllowedNetworks = networks;
                     }
                     else
                     {
-                        _dnsServer.RecursionAllowedNetworks = null;
+                        recursionAllowedNetworks = null;
                     }
                 }
+
+                _dnsServer.RecursionNetworkACL = AuthZoneInfo.ConvertDenyAllowToACL(recursionDeniedNetworks, recursionAllowedNetworks);
             }
             else
             {
@@ -1759,7 +1923,7 @@ namespace DnsServerCore
             if (version >= 12)
                 _dnsServer.RandomizeName = bR.ReadBoolean();
             else
-                _dnsServer.RandomizeName = true; //default true to enable security feature
+                _dnsServer.RandomizeName = false; //default false to allow resolving from bad name servers
 
             if (version >= 15)
                 _dnsServer.QnameMinimization = bR.ReadBoolean();
@@ -2149,7 +2313,7 @@ namespace DnsServerCore
             if (version >= 22)
                 _dnsServer.NsRevalidation = bR.ReadBoolean();
             else
-                _dnsServer.NsRevalidation = true; //default true for security reasons
+                _dnsServer.NsRevalidation = false; //default false to allow resolving misconfigured zones
 
             if (version >= 23)
             {
@@ -2224,7 +2388,7 @@ namespace DnsServerCore
         private void WriteConfigTo(BinaryWriter bW)
         {
             bW.Write(Encoding.ASCII.GetBytes("DS")); //format
-            bW.Write((byte)35); //version
+            bW.Write((byte)37); //version
 
             //web service
             {
@@ -2266,14 +2430,20 @@ namespace DnsServerCore
                         localEP.WriteTo(bW);
                 }
 
-                WriteNetworkAddresses(DnsClientConnection.IPv4SourceAddresses, bW);
-                WriteNetworkAddresses(DnsClientConnection.IPv6SourceAddresses, bW);
+                AuthZoneInfo.WriteNetworkAddressesTo(DnsClientConnection.IPv4SourceAddresses, bW);
+                AuthZoneInfo.WriteNetworkAddressesTo(DnsClientConnection.IPv6SourceAddresses, bW);
 
                 bW.Write(_zonesApi.DefaultRecordTtl);
+
+                if (_dnsServer.ResponsiblePersonInternal is null)
+                    bW.WriteShortString("");
+                else
+                    bW.WriteShortString(_dnsServer.ResponsiblePersonInternal.Address);
+
                 bW.Write(_dnsServer.AuthZoneManager.UseSoaSerialDateScheme);
 
-                WriteNetworkAddresses(_dnsServer.ZoneTransferAllowedNetworks, bW);
-                WriteNetworkAddresses(_dnsServer.NotifyAllowedNetworks, bW);
+                AuthZoneInfo.WriteNetworkAddressesTo(_dnsServer.ZoneTransferAllowedNetworks, bW);
+                AuthZoneInfo.WriteNetworkAddressesTo(_dnsServer.NotifyAllowedNetworks, bW);
 
                 bW.Write(_appsApi.EnableAutomaticUpdate);
 
@@ -2311,7 +2481,7 @@ namespace DnsServerCore
                 bW.Write(_dnsServer.QpmLimitIPv4PrefixLength);
                 bW.Write(_dnsServer.QpmLimitIPv6PrefixLength);
 
-                WriteNetworkAddresses(_dnsServer.QpmLimitBypassList, bW);
+                AuthZoneInfo.WriteNetworkAddressesTo(_dnsServer.QpmLimitBypassList, bW);
 
                 bW.Write(_dnsServer.ClientTimeout);
                 bW.Write(_dnsServer.TcpSendTimeout);
@@ -2326,6 +2496,7 @@ namespace DnsServerCore
                 bW.Write(_dnsServer.EnableDnsOverHttp);
                 bW.Write(_dnsServer.EnableDnsOverTls);
                 bW.Write(_dnsServer.EnableDnsOverHttps);
+                bW.Write(_dnsServer.EnableDnsOverHttp3);
                 bW.Write(_dnsServer.EnableDnsOverQuic);
 
                 bW.Write(_dnsServer.DnsOverUdpProxyPort);
@@ -2364,9 +2535,7 @@ namespace DnsServerCore
 
                 //recursion
                 bW.Write((byte)_dnsServer.Recursion);
-
-                WriteNetworkAddresses(_dnsServer.RecursionDeniedNetworks, bW);
-                WriteNetworkAddresses(_dnsServer.RecursionAllowedNetworks, bW);
+                AuthZoneInfo.WriteNetworkACLTo(_dnsServer.RecursionNetworkACL, bW);
 
                 bW.Write(_dnsServer.RandomizeName);
                 bW.Write(_dnsServer.QnameMinimization);
@@ -2374,12 +2543,16 @@ namespace DnsServerCore
 
                 bW.Write(_dnsServer.ResolverRetries);
                 bW.Write(_dnsServer.ResolverTimeout);
+                bW.Write(_dnsServer.ResolverConcurrency);
                 bW.Write(_dnsServer.ResolverMaxStackCount);
 
                 //cache
                 bW.Write(_saveCache);
                 bW.Write(_dnsServer.ServeStale);
                 bW.Write(_dnsServer.CacheZoneManager.ServeStaleTtl);
+                bW.Write(_dnsServer.CacheZoneManager.ServeStaleAnswerTtl);
+                bW.Write(_dnsServer.CacheZoneManager.ServeStaleResetTtl);
+                bW.Write(_dnsServer.ServeStaleMaxWaitTime);
 
                 bW.Write(_dnsServer.CacheZoneManager.MaximumEntries);
                 bW.Write(_dnsServer.CacheZoneManager.MinimumRecordTtl);
@@ -2396,7 +2569,7 @@ namespace DnsServerCore
                 bW.Write(_dnsServer.EnableBlocking);
                 bW.Write(_dnsServer.AllowTxtBlockingReport);
 
-                WriteNetworkAddresses(_dnsServer.BlockingBypassList, bW);
+                AuthZoneInfo.WriteNetworkAddressesTo(_dnsServer.BlockingBypassList, bW);
 
                 bW.Write((byte)_dnsServer.BlockingType);
 
@@ -2468,6 +2641,7 @@ namespace DnsServerCore
                         forwarder.WriteTo(bW);
                 }
 
+                bW.Write(_dnsServer.ConcurrentForwarding);
                 bW.Write(_dnsServer.ForwarderRetries);
                 bW.Write(_dnsServer.ForwarderTimeout);
                 bW.Write(_dnsServer.ForwarderConcurrency);
@@ -2480,33 +2654,34 @@ namespace DnsServerCore
             }
         }
 
-        private static NetworkAddress[] ReadNetworkAddresses(BinaryReader bR)
+        #endregion
+
+        #region secondary catalog zones
+
+        private void AuthZoneManager_SecondaryCatalogZoneAdded(object sender, SecondaryCatalogEventArgs e)
         {
-            int count = bR.ReadByte();
-            if (count < 1)
-                return null;
+            AuthZoneInfo sourceZoneInfo = new AuthZoneInfo(sender as ApexZone);
+            AuthZoneInfo zoneInfo = e.ZoneInfo;
 
-            NetworkAddress[] networks = new NetworkAddress[count];
+            //clone user/group permissions from source zone
+            Permission sourceZonePermissions = _authManager.GetPermission(PermissionSection.Zones, sourceZoneInfo.Name);
 
-            for (int i = 0; i < count; i++)
-                networks[i] = NetworkAddress.ReadFrom(bR);
+            foreach (KeyValuePair<User, PermissionFlag> userPermission in sourceZonePermissions.UserPermissions)
+                _authManager.SetPermission(PermissionSection.Zones, zoneInfo.Name, userPermission.Key, userPermission.Value);
 
-            return networks;
+            foreach (KeyValuePair<Group, PermissionFlag> groupPermissions in sourceZonePermissions.GroupPermissions)
+                _authManager.SetPermission(PermissionSection.Zones, zoneInfo.Name, groupPermissions.Key, groupPermissions.Value);
+
+            //set default permissions
+            _authManager.SetPermission(PermissionSection.Zones, zoneInfo.Name, _authManager.GetGroup(Group.ADMINISTRATORS), PermissionFlag.ViewModifyDelete);
+            _authManager.SetPermission(PermissionSection.Zones, zoneInfo.Name, _authManager.GetGroup(Group.DNS_ADMINISTRATORS), PermissionFlag.ViewModifyDelete);
+            _authManager.SaveConfigFile();
         }
 
-        private static void WriteNetworkAddresses(IReadOnlyCollection<NetworkAddress> networkAddresses, BinaryWriter bW)
+        private void AuthZoneManager_SecondaryCatalogZoneRemoved(object sender, SecondaryCatalogEventArgs e)
         {
-            if (networkAddresses is null)
-            {
-                bW.Write((byte)0);
-            }
-            else
-            {
-                bW.Write(Convert.ToByte(networkAddresses.Count));
-
-                foreach (NetworkAddress network in networkAddresses)
-                    network.WriteTo(bW);
-            }
+            _authManager.RemoveAllPermissions(PermissionSection.Zones, e.ZoneInfo.Name);
+            _authManager.SaveConfigFile();
         }
 
         #endregion
@@ -2521,7 +2696,7 @@ namespace DnsServerCore
             try
             {
                 //get initial server domain
-                string dnsServerDomain = Environment.MachineName.ToLower();
+                string dnsServerDomain = Environment.MachineName.ToLowerInvariant();
                 if (!DnsClient.IsDomainNameValid(dnsServerDomain))
                     dnsServerDomain = "dns-server-1"; //use this name instead since machine name is not a valid domain name
 
@@ -2543,6 +2718,8 @@ namespace DnsServerCore
                 _dnsServer.DnsApplicationManager.LoadAllApplications();
 
                 //load all zones files
+                _dnsServer.AuthZoneManager.SecondaryCatalogZoneAdded += AuthZoneManager_SecondaryCatalogZoneAdded;
+                _dnsServer.AuthZoneManager.SecondaryCatalogZoneRemoved += AuthZoneManager_SecondaryCatalogZoneRemoved;
                 _dnsServer.AuthZoneManager.LoadAllZoneFiles();
                 InspectAndFixZonePermissions();
 
@@ -2600,7 +2777,7 @@ namespace DnsServerCore
                 }
 
                 //start web service
-                await TryStartWebServiceAsync(new IPAddress[] { IPAddress.Any, IPAddress.IPv6Any }, 5380, 53443);
+                await TryStartWebServiceAsync([IPAddress.Any, IPAddress.IPv6Any], 5380, 53443);
 
                 //start dns and dhcp
                 await _dnsServer.StartAsync();

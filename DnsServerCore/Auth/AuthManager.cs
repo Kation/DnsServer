@@ -1,6 +1,6 @@
 ﻿/*
 Technitium DNS Server
-Copyright (C) 2022  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -22,9 +22,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TechnitiumLibrary.Net;
 
 namespace DnsServerCore.Auth
 {
@@ -39,16 +41,16 @@ namespace DnsServerCore.Auth
 
         readonly ConcurrentDictionary<string, UserSession> _sessions = new ConcurrentDictionary<string, UserSession>(1, 10);
 
-        readonly ConcurrentDictionary<IPAddress, int> _failedLoginAttempts = new ConcurrentDictionary<IPAddress, int>(1, 10);
+        readonly ConcurrentDictionary<IPAddress, int> _failedLoginAttemptNetworks = new ConcurrentDictionary<IPAddress, int>(1, 10);
         const int MAX_LOGIN_ATTEMPTS = 5;
 
-        readonly ConcurrentDictionary<IPAddress, DateTime> _blockedAddresses = new ConcurrentDictionary<IPAddress, DateTime>(1, 10);
-        const int BLOCK_ADDRESS_INTERVAL = 5 * 60 * 1000;
+        readonly ConcurrentDictionary<IPAddress, DateTime> _blockedNetworks = new ConcurrentDictionary<IPAddress, DateTime>(1, 10);
+        const int BLOCK_NETWORK_INTERVAL = 5 * 60 * 1000;
 
         readonly string _configFolder;
         readonly LogManager _log;
 
-        readonly object _lockObj = new object();
+        readonly object _saveLock = new object();
         bool _pendingSave;
         readonly Timer _saveTimer;
         const int SAVE_TIMER_INITIAL_INTERVAL = 10000;
@@ -62,7 +64,27 @@ namespace DnsServerCore.Auth
             _configFolder = configFolder;
             _log = log;
 
-            _saveTimer = new Timer(SaveTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
+            _saveTimer = new Timer(delegate (object state)
+            {
+                lock (_saveLock)
+                {
+                    if (_pendingSave)
+                    {
+                        try
+                        {
+                            SaveConfigFileInternal();
+                            _pendingSave = false;
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.Write(ex);
+
+                            //set timer to retry again
+                            _saveTimer.Change(SAVE_TIMER_INITIAL_INTERVAL, Timeout.Infinite);
+                        }
+                    }
+                }
+            });
         }
 
         #endregion
@@ -76,12 +98,23 @@ namespace DnsServerCore.Auth
             if (_disposed)
                 return;
 
-            if (_saveTimer is not null)
-                _saveTimer.Dispose();
-
-            lock (_lockObj)
+            lock (_saveLock)
             {
-                SaveConfigFileInternal();
+                _saveTimer?.Dispose();
+
+                //always save config here
+                try
+                {
+                    SaveConfigFileInternal();
+                }
+                catch (Exception ex)
+                {
+                    _log.Write(ex);
+                }
+                finally
+                {
+                    _pendingSave = false;
+                }
             }
 
             _disposed = true;
@@ -90,22 +123,6 @@ namespace DnsServerCore.Auth
         #endregion
 
         #region private
-
-        private void SaveTimerCallback(object state)
-        {
-            try
-            {
-                lock (_lockObj)
-                {
-                    _pendingSave = false;
-                    SaveConfigFileInternal();
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Write(ex);
-            }
-        }
 
         private void CreateDefaultConfig()
         {
@@ -309,7 +326,7 @@ namespace DnsServerCore.Auth
                         for (int i = 0; i < count; i++)
                         {
                             Group group = new Group(bR);
-                            _groups.TryAdd(group.Name.ToLower(), group);
+                            _groups.TryAdd(group.Name.ToLowerInvariant(), group);
                         }
                     }
 
@@ -383,35 +400,50 @@ namespace DnsServerCore.Auth
                 session.WriteTo(bW);
         }
 
-        private void FailedLoginAttempt(IPAddress address)
+        private static IPAddress GetClientNetwork(IPAddress address)
         {
-            _failedLoginAttempts.AddOrUpdate(address, 1, delegate (IPAddress key, int attempts)
+            switch (address.AddressFamily)
+            {
+                case AddressFamily.InterNetwork:
+                    return address.GetNetworkAddress(32);
+
+                case AddressFamily.InterNetworkV6:
+                    return address.GetNetworkAddress(64);
+
+                default:
+                    throw new InvalidOperationException();
+            }
+        }
+
+        private void MarkFailedLoginAttempt(IPAddress network)
+        {
+            _failedLoginAttemptNetworks.AddOrUpdate(network, 1, delegate (IPAddress key, int attempts)
             {
                 return attempts + 1;
             });
         }
 
-        private bool LoginAttemptsExceedLimit(IPAddress address, int limit)
+        private bool HasLoginAttemptExceedLimit(IPAddress network, int limit)
         {
-            if (!_failedLoginAttempts.TryGetValue(address, out int attempts))
+            if (!_failedLoginAttemptNetworks.TryGetValue(network, out int attempts))
                 return false;
 
             return attempts >= limit;
         }
 
-        private void ResetFailedLoginAttempt(IPAddress address)
+        private void ResetFailedLoginAttempts(IPAddress network)
         {
-            _failedLoginAttempts.TryRemove(address, out _);
+            _failedLoginAttemptNetworks.TryRemove(network, out _);
         }
 
-        private void BlockAddress(IPAddress address, int interval)
+        private void BlockNetwork(IPAddress network, int interval)
         {
-            _blockedAddresses.TryAdd(address, DateTime.UtcNow.AddMilliseconds(interval));
+            _blockedNetworks.TryAdd(network, DateTime.UtcNow.AddMilliseconds(interval));
         }
 
-        private bool IsAddressBlocked(IPAddress address)
+        private bool IsNetworkBlocked(IPAddress network)
         {
-            if (!_blockedAddresses.TryGetValue(address, out DateTime expiry))
+            if (!_blockedNetworks.TryGetValue(network, out DateTime expiry))
                 return false;
 
             if (expiry > DateTime.UtcNow)
@@ -420,16 +452,16 @@ namespace DnsServerCore.Auth
             }
             else
             {
-                UnblockAddress(address);
-                ResetFailedLoginAttempt(address);
+                UnblockNetwork(network);
+                ResetFailedLoginAttempts(network);
 
                 return false;
             }
         }
 
-        private void UnblockAddress(IPAddress address)
+        private void UnblockNetwork(IPAddress network)
         {
-            _blockedAddresses.TryRemove(address, out _);
+            _blockedNetworks.TryRemove(network, out _);
         }
 
         #endregion
@@ -438,7 +470,7 @@ namespace DnsServerCore.Auth
 
         public User GetUser(string username)
         {
-            if (_users.TryGetValue(username.ToLower(), out User user))
+            if (_users.TryGetValue(username.ToLowerInvariant(), out User user))
                 return user;
 
             return null;
@@ -449,7 +481,7 @@ namespace DnsServerCore.Auth
             if (_users.Count >= byte.MaxValue)
                 throw new DnsWebServiceException("Cannot create more than 255 users.");
 
-            username = username.ToLower();
+            username = username.ToLowerInvariant();
 
             User user = new User(displayName, username, password, iterations);
 
@@ -481,7 +513,7 @@ namespace DnsServerCore.Auth
 
         public bool DeleteUser(string username)
         {
-            if (_users.TryRemove(username.ToLower(), out User deletedUser))
+            if (_users.TryRemove(username.ToLowerInvariant(), out User deletedUser))
             {
                 //delete all sessions
                 foreach (UserSession session in GetSessions(deletedUser))
@@ -502,7 +534,7 @@ namespace DnsServerCore.Auth
 
         public Group GetGroup(string name)
         {
-            if (_groups.TryGetValue(name.ToLower(), out Group group))
+            if (_groups.TryGetValue(name.ToLowerInvariant(), out Group group))
                 return group;
 
             return null;
@@ -542,7 +574,7 @@ namespace DnsServerCore.Auth
 
             Group group = new Group(name, description);
 
-            if (_groups.TryAdd(name.ToLower(), group))
+            if (_groups.TryAdd(name.ToLowerInvariant(), group))
                 return group;
 
             throw new DnsWebServiceException("Group already exists: " + name);
@@ -559,13 +591,13 @@ namespace DnsServerCore.Auth
             string oldGroupName = group.Name;
             group.Name = newGroupName;
 
-            if (!_groups.TryAdd(group.Name.ToLower(), group))
+            if (!_groups.TryAdd(group.Name.ToLowerInvariant(), group))
             {
                 group.Name = oldGroupName; //revert
                 throw new DnsWebServiceException("Group already exists: " + newGroupName);
             }
 
-            _groups.TryRemove(oldGroupName.ToLower(), out _);
+            _groups.TryRemove(oldGroupName.ToLowerInvariant(), out _);
 
             //update users
             foreach (KeyValuePair<string, User> user in _users)
@@ -574,7 +606,7 @@ namespace DnsServerCore.Auth
 
         public bool DeleteGroup(string name)
         {
-            name = name.ToLower();
+            name = name.ToLowerInvariant();
 
             switch (name)
             {
@@ -628,8 +660,10 @@ namespace DnsServerCore.Auth
 
         public async Task<UserSession> CreateSessionAsync(UserSessionType type, string tokenName, string username, string password, IPAddress remoteAddress, string userAgent)
         {
-            if (IsAddressBlocked(remoteAddress))
-                throw new DnsWebServiceException("Max limit of " + MAX_LOGIN_ATTEMPTS + " attempts exceeded. Access blocked for " + (BLOCK_ADDRESS_INTERVAL / 1000) + " seconds.");
+            IPAddress network = GetClientNetwork(remoteAddress);
+
+            if (IsNetworkBlocked(network))
+                throw new DnsWebServiceException("Max limit of " + MAX_LOGIN_ATTEMPTS + " attempts exceeded. Access blocked for " + (BLOCK_NETWORK_INTERVAL / 1000) + " seconds.");
 
             User user = GetUser(username);
 
@@ -637,10 +671,10 @@ namespace DnsServerCore.Auth
             {
                 if (password != "admin")
                 {
-                    FailedLoginAttempt(remoteAddress);
+                    MarkFailedLoginAttempt(network);
 
-                    if (LoginAttemptsExceedLimit(remoteAddress, MAX_LOGIN_ATTEMPTS))
-                        BlockAddress(remoteAddress, BLOCK_ADDRESS_INTERVAL);
+                    if (HasLoginAttemptExceedLimit(network, MAX_LOGIN_ATTEMPTS))
+                        BlockNetwork(network, BLOCK_NETWORK_INTERVAL);
 
                     await Task.Delay(1000);
                 }
@@ -648,7 +682,7 @@ namespace DnsServerCore.Auth
                 throw new DnsWebServiceException("Invalid username or password for user: " + username);
             }
 
-            ResetFailedLoginAttempt(remoteAddress);
+            ResetFailedLoginAttempts(network);
 
             if (user.Disabled)
                 throw new DnsWebServiceException("User account is disabled. Please contact your administrator.");
@@ -665,9 +699,6 @@ namespace DnsServerCore.Auth
 
         public UserSession CreateApiToken(string tokenName, string username, IPAddress remoteAddress, string userAgent)
         {
-            if (IsAddressBlocked(remoteAddress))
-                throw new DnsWebServiceException("Max limit of " + MAX_LOGIN_ATTEMPTS + " attempts exceeded. Access blocked for " + (BLOCK_ADDRESS_INTERVAL / 1000) + " seconds.");
-
             User user = GetUser(username);
             if (user is null)
                 throw new DnsWebServiceException("No such user exists: " + username);
@@ -797,7 +828,7 @@ namespace DnsServerCore.Auth
             else
                 user.ChangePassword(password);
 
-            lock (_lockObj)
+            lock (_saveLock)
             {
                 SaveConfigFileInternal();
             }
@@ -805,7 +836,7 @@ namespace DnsServerCore.Auth
 
         public void LoadConfigFile(UserSession implantSession = null)
         {
-            lock (_lockObj)
+            lock (_saveLock)
             {
                 _groups.Clear();
                 _users.Clear();
@@ -818,7 +849,7 @@ namespace DnsServerCore.Auth
 
         public void SaveConfigFile()
         {
-            lock (_lockObj)
+            lock (_saveLock)
             {
                 if (_pendingSave)
                     return;

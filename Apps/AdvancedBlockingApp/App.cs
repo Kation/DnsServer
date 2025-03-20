@@ -345,7 +345,7 @@ namespace AdvancedBlocking
 
             Directory.CreateDirectory(Path.Combine(_dnsServer.ApplicationFolder, "blocklists"));
 
-            _soaRecord = new DnsSOARecordData(_dnsServer.ServerDomain, "hostadmin@" + _dnsServer.ServerDomain, 1, 14400, 3600, 604800, 60);
+            _soaRecord = new DnsSOARecordData(_dnsServer.ServerDomain, _dnsServer.ResponsiblePerson.Address, 1, 14400, 3600, 604800, 60);
             _nsRecord = new DnsNSRecordData(_dnsServer.ServerDomain);
 
             using JsonDocument jsonDocument = JsonDocument.Parse(config);
@@ -998,7 +998,7 @@ namespace AdvancedBlocking
 
             public bool IsZoneAllowed(string domain)
             {
-                domain = domain.ToLower();
+                domain = domain.ToLowerInvariant();
 
                 //allowed, allow list zone, allowedRegex, regex allow list zone, adblock list zone
                 return IsZoneFound(_allowed, domain, out _) || IsZoneFound(_allowListZones, domain, out _, out _) || IsMatchFound(_allowedRegex, domain, out _) || IsMatchFound(_regexAllowListZones, domain, out _, out _) || App.IsZoneAllowed(_adBlockListZones, domain, out _, out _);
@@ -1006,7 +1006,7 @@ namespace AdvancedBlocking
 
             public bool IsZoneBlocked(string domain, out string blockedDomain, out string blockedRegex, out UrlEntry listUrl)
             {
-                domain = domain.ToLower();
+                domain = domain.ToLowerInvariant();
 
                 //blocked
                 if (IsZoneFound(_blocked, domain, out string foundZone1))
@@ -1132,7 +1132,7 @@ namespace AdvancedBlocking
                 _isRegexList = isRegexList;
                 _isAdblockList = isAdblockList;
 
-                _listFilePath = Path.Combine(Path.Combine(_dnsServer.ApplicationFolder, "blocklists"), Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_listUrl.AbsoluteUri))).ToLower());
+                _listFilePath = Path.Combine(Path.Combine(_dnsServer.ApplicationFolder, "blocklists"), Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_listUrl.AbsoluteUri))).ToLowerInvariant());
             }
 
             #endregion
@@ -1387,7 +1387,7 @@ namespace AdvancedBlocking
                                     hostname = secondWord;
                             }
 
-                            hostname = hostname.Trim('.').ToLower();
+                            hostname = hostname.Trim('.').ToLowerInvariant();
 
                             switch (hostname)
                             {

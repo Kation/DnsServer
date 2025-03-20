@@ -1,5 +1,47 @@
 # Technitium DNS Server Change Log
 
+## Version 13.0
+Release Date: 22 September 2024
+
+- Implemented Catalog Zones [RFC 9432](https://datatracker.ietf.org/doc/rfc9432/) support to allow automatic DNS zone provisioning to one or more secondary name servers. The implementation supports Primary, Stub, and Conditional Forwarder zones for automatic provisioning of their respective secondary zones.
+- Added new Secondary Forwarder zone support to allow configuring secondaries for Conditional Forwarder zones. Conditional Forwarder zones now support zone transfer and notify features to support secondaries and will now contain a dummy SOA record.
+- Added Query Access feature to allow configuring access to each individual zone. This allows limiting query access to only clients on configured networks even when the DNS server is publicly accessible.
+- Added support for specifying Expiry TTL for records in zones that will cause the DNS server to automatically delete the records when Expiry TTL elapses.
+- Added support for concurrency in recursive resolver to allow querying more than one name server at a time to improve resolution performance.
+- Added support for latency based name server selection algorithm that works with concurrency feature for both recursive resolution and forwarders to significantly improve resolution performance.
+- Implemented priority support for Conditional Forwarder FWD records which can be used to prioritize some forwarders and have a low priority "This Server" FWD record to perform recursive resolution if needed.
+- Implemented ZONEMD [RFC 8976](https://datatracker.ietf.org/doc/rfc8976/) validation support for Secondary zones which is intended to be used with local secondary ROOT zone. This feature allows validating complete zone after each zone transfer.
+- Added support for Responsible Person (RP) record [RFC 1183](https://www.rfc-editor.org/rfc/rfc1183).
+- Added option to enable/disable Concurrent Forwarding feature so as to allow having sequential forwarding support.
+- The DNS Server now supports Network Access Control Lists for Recursion, Zone Transfer, and Dynamic Updates in both the GUI and HTTP API.
+- Changed the Unsupported NSEC3 Iteration Value implementation due to bug in previous implementation that caused failure to validate in some cases.
+- Improved brute force protection implementation for admin web service for IPv6 networks.
+- Added feature to write client subnet query rate limiting events to log file to allow tracking.
+- This major update has some breaking changes with SOA record and Zone Options related HTTP API calls. Some options in SOA record have been moved to Zone Options in both HTTP API and GUI. There are few breaking changes with the DNS Client library code too so any custom DNS App should be tested before upgrading the DNS server.
+- Multiple other minor bug fixes and improvements.
+
+## Version 12.2.1
+Release Date: 15 June 2024
+
+- Fixed issue in DHCP server that caused failure to allocate lease due to hash code mismatch.
+- Fixed issue that may create empty zone files after the zone was deleted.
+
+## Version 12.2
+Release Date: 15 June 2024
+
+- Added support for NAPTR record type.
+- Added Default Responsible Person option in Settings to use when adding Primary Zones.
+- Updated Serve Stale implementation to allow configuring Answer TTL, Reset TTL, and Max Wait Time options in Settings.
+- Updated SVCB/HTTPS record implementation to add support for automatic IP address hints.
+- Updated TXT record implementation to allow preserving the character-strings for a given TXT record to allow support for [RFC 6763](https://www.rfc-editor.org/rfc/rfc6763).
+- Updated DNS Server's System Tray app on Windows with new context menu option to allow configuring Automatic Firewall entry feature.
+- Fixed issue with NSEC proof validation for wildcard empty non-terminal (ENT) cases.
+- Fixed issue with QNAME minimization implementation caused when NSEC3 unsupported iteration count event is encountered while resolving.
+- Added support for .p12 certificate file extension along with existing .pfx extension.
+- Filter AAAA App: Added new app that allows filtering AAAA records by returning NO DATA response when A records for the same domain name are available. This allows clients with dual-stack (IPv4 and IPv6) Internet connection to prefer using IPv4 to connect to websites and use IPv6 only when a website has no IPv4 support.
+- Query Logs (Sqlite) App: Fixed issue of failing to load the app on Alpine Linux.
+- Multiple other minor bug fixes and improvements.
+
 ## Version 12.1
 Release Date: 16 March 2024
 
@@ -37,7 +79,7 @@ Release Date: 8 February 2024
 Release Date: 4 February 2024
 
 - Upgraded codebase to use .NET 8 runtime. If you had manually installed the DNS Server or .NET 7 Runtime earlier then you must install .NET 8 Runtime manually before upgrading the DNS server.
-- Fixed pulsing DoS vulnerability reported by Xiang Li, [Network and Information Security Lab, Tsinghua University](https://netsec.ccert.edu.cn/) by updating the default configured values for the DNS server which mitigates the impact.
+- Fixed pulsing DoS vulnerability [CVE-2024-33655] reported by Xiang Li, [Network and Information Security Lab, Tsinghua University](https://netsec.ccert.edu.cn/) by updating the default configured values for the DNS server which mitigates the impact.
 - Added "Dropped" request stats on the Dashboard and main chart which shows the number of request that were dropped by the DNS server due to rate limiting or by the Drop Requests app.
 - Added transport protocol types chart on Dashboard which shows the protocol stats for the requests received by the DNS server.
 - Added feature to specify one or more source addresses for outbound DNS requests when the server is connected to two or more networks.
