@@ -148,8 +148,11 @@ namespace DnsFallbackApp
                             switch (item.Protocol)
                             {
                                 case DnsTransportProtocol.Https:
+                                    servers.Add(new NameServerAddress(new Uri(item.Url), address));
+                                    break;
                                 case DnsTransportProtocol.HttpsJson:
-                                    servers.Add(new NameServerAddress(item.Url, address, item.Protocol));
+                                    var ns = new NameServerAddress(new Uri(item.Url), address);
+                                    ns.ChangeProtocol(DnsTransportProtocol.HttpsJson);
                                     break;
                                 default:
                                     if (item.Port != 0)
@@ -315,13 +318,13 @@ namespace DnsFallbackApp
             }
             if (useDefault)
                 return null;
-            var result = _dnsServer.DnsCache.Query(request);
+            var result = await _dnsServer.DnsCache.QueryAsync(request);
             if (result != null)
             {
                 result.Tag = DnsServerResponseType.Cached;
                 return result;
             }
-            result = await _dnsClient.ResolveAsync(request);
+            result = await _dnsClient.ResolveAsync(request.Question[0]);
             _dnsServer.DnsCache.CacheResponse(result);
             return result;
         }
@@ -461,7 +464,7 @@ namespace DnsFallbackApp
                 DnsDatagram result;
                 try
                 {
-                    result = await _dnsClient.ResolveAsync(request);
+                    result = await _dnsClient.ResolveAsync(request.Question[0]);
                 }
                 catch (Exception ex)
                 {
